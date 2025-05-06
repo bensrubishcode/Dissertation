@@ -1,0 +1,36 @@
+# Dockerfile for bensrubishcode/traffic_sensor
+# Runs sensor_server.py: Waits for config, queries central server, serves data via raw socket.
+
+# Use a lightweight Python base image
+FROM python:3.9-slim
+
+# Set environment variables for unbuffered output
+ENV PYTHONUNBUFFERED 1
+
+# Install system dependencies and Python libraries
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        iputils-ping \
+        procps \
+        iproute2 \
+        net-tools \
+        nano \
+        # Add other debugging tools if needed
+    # Install python requests library (needed to query central server)
+    && pip install --no-cache-dir requests \
+    # Clean up APT cache
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the sensor script into the container
+# *** IMPORTANT: Make sure this filename matches your sensor script ***
+# *** (e.g., the one from immersive id="sensor_server_wait_loop_correct") ***
+COPY sensor_server.py .
+
+# Command to run when the container starts
+# *** MODIFIED: Run the python script directly ***
+CMD ["python", "sensor_server.py"]

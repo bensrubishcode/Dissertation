@@ -1,0 +1,9 @@
+ifconfig eth0 10.15.1.254/24 up
+ifconfig eth1 192.168.254.15/24 up
+# Router 15 FRR Setup
+mkdir -p /etc/quagga; touch /etc/quagga/zebra.conf /etc/quagga/ripd.conf; chown root:frr /etc/quagga; chmod 775 /etc/quagga; chown root:frr /etc/quagga/*.conf; chmod 640 /etc/quagga/*.conf
+sed -i 's/^ripd=no/ripd=yes/' /etc/frr/daemons; sed -i 's/^zebra=no/zebra=yes/' /etc/frr/daemons; sed -i 's#^ripd_options=.*#\#&#' /etc/frr/daemons; sed -i 's#^zebra_options=.*#\#&#' /etc/frr/daemons
+grep -qxF 'ripd=yes' /etc/frr/daemons || echo 'ripd=yes' >> /etc/frr/daemons; grep -qxF 'zebra=yes' /etc/frr/daemons || echo 'zebra=yes' >> /etc/frr/daemons
+grep -qxF 'zebra_options=" --daemon -f /etc/quagga/zebra.conf"' /etc/frr/daemons || echo 'zebra_options=" --daemon -f /etc/quagga/zebra.conf"' >> /etc/frr/daemons
+grep -qxF 'ripd_options=" --daemon -f /etc/quagga/ripd.conf"' /etc/frr/daemons || echo 'ripd_options=" --daemon -f /etc/quagga/ripd.conf"' >> /etc/frr/daemons
+if [ -x /usr/lib/frr/frrinit.sh ]; then /usr/lib/frr/frrinit.sh start; else echo "[ERROR] FRR init script not found." >&2; fi

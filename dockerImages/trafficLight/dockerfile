@@ -1,0 +1,36 @@
+# Dockerfile for bensrubishcode/traffic_light
+# Runs traffic_light_controller.py: Waits for config, queries sensors (raw socket) & central server (HTTP).
+
+# Use a lightweight Python base image
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED 1
+
+# Install necessary system tools and python libraries
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        iputils-ping \
+        procps \
+        iproute2 \
+        net-tools \
+        nano \
+        # Add other debugging tools if needed
+    # Install python requests library (needed for central server query)
+    && pip install --no-cache-dir requests \
+    # Clean up APT cache
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the controller script into the container
+# *** IMPORTANT: Make sure this filename matches your traffic light script ***
+# *** (e.g., the one from immersive id="traffic_light_controller_wait_loop_correct") ***
+COPY traffic_light_controller.py .
+
+# Command to run when the container starts
+# *** MODIFIED: Run the python script directly ***
+CMD ["python", "traffic_light_controller.py"]

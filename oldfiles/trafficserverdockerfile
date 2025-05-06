@@ -1,0 +1,23 @@
+# Use a lightweight Python base image
+FROM python:3.9-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install essential tools + Flask and compatible Werkzeug
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        procps \
+        net-tools \
+        iputils-ping \
+        curl \
+        iproute2 \
+    && pip install Flask==2.0.1 "Werkzeug<2.1" \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the traffic generator script into the image
+COPY traffic_generator.py .
+
+# Command to run when the container starts (runs Flask app in foreground)
+CMD ["python", "traffic_generator.py"]

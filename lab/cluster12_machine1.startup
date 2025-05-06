@@ -1,0 +1,9 @@
+ifconfig eth0 10.12.1.1/24 up
+route add default gw 10.12.1.254 dev eth0
+
+# Client cluster12_machine1 Startup Commands
+echo "Setting client identity files..."
+echo 12 > /etc/cluster_id
+echo EDGE=0-3 > /etc/edge_info
+echo NOISY=false > /etc/sensor_config
+# Python script started by Docker CMD

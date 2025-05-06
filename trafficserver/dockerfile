@@ -1,0 +1,39 @@
+# Dockerfile for bensrubishcode/traffic_server
+# Runs realtimetrafficserver.py: Simulates traffic, serves ground truth via Flask.
+
+# Use a lightweight Python base image
+FROM python:3.9-slim
+
+# Set environment variables for unbuffered output
+ENV PYTHONUNBUFFERED 1
+
+# Set working directory
+WORKDIR /app
+
+# Install essential tools + Flask, Werkzeug, NetworkX
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        procps \
+        net-tools \
+        iputils-ping \
+        curl \
+        iproute2 \
+        nano \
+        # Add other debugging tools if needed
+    # Install required python libraries
+    && pip install --no-cache-dir \
+        Flask==2.0.1 \
+        "Werkzeug<2.1" \
+        networkx \
+    # Clean up APT cache
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the real-time traffic server script into the image
+# *** IMPORTANT: Make sure this filename matches your server script ***
+# *** (e.g., the one from immersive id="realtime_server_script_provide_traffic_v3") ***
+COPY realtimetrafficserver.py .
+
+# Command to run when the container starts
+# *** IMPORTANT: Make sure this filename matches the script copied above ***
+CMD ["python", "realtimetrafficserver.py"]
