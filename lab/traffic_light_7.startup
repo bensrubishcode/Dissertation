@@ -1,7 +1,7 @@
 ifconfig eth0 192.168.254.102/24 up
 route add default gw 192.168.254.1 dev eth0
 
-# Traffic Light traffic_light_9 Startup Commands
+# Traffic Light traffic_light_7 Startup Commands
 echo "Setting traffic light identity file..."
-echo 9 > /etc/node_id
+echo 7 > /etc/node_id
 # Python script started by Docker CMD

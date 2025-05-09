@@ -4,6 +4,6 @@ route add default gw 10.4.1.254 dev eth0
 # Client cluster4_machine1 Startup Commands
 echo "Setting client identity files..."
 echo 4 > /etc/cluster_id
-echo EDGE=0-14 > /etc/edge_info
+echo EDGE=9-18 > /etc/edge_info
 echo NOISY=false > /etc/sensor_config
 # Python script started by Docker CMD
