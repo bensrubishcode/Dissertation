@@ -4,11 +4,10 @@ route add default gw 10.1.1.254 dev eth0
 # Client cluster1_machine1 (Sensor) Startup Commands
 echo "Setting client identity and behavior files..."
 echo 1 > /etc/cluster_id
-echo EDGE=1-8 > /etc/edge_info
-echo MANUFACTURER=LegacySystems > /etc/sensor_profile
-echo SOFTWARE_VERSION=v2.1.0-signed >> /etc/sensor_profile
+echo EDGE=6-18 > /etc/edge_info
+echo MANUFACTURER=ShadySensorsLtd > /etc/sensor_profile
+echo SOFTWARE_VERSION=v1.0.1-signed >> /etc/sensor_profile
 echo IS_SIGNED=true >> /etc/sensor_profile
-echo SOFTWARE_AGE_YEARS=0.5 >> /etc/sensor_profile
-echo DEVICE_AGE_YEARS=4.94 >> /etc/sensor_profile
-echo MAKE_NOISY=false > /etc/sensor_config
-# Python script for sensor_server.py is started by Docker CMD
+echo SOFTWARE_AGE_YEARS=3.5 >> /etc/sensor_profile
+echo DEVICE_AGE_YEARS=0.8 >> /etc/sensor_profile
+echo MAKE_NOISY=true > /etc/sensor_config

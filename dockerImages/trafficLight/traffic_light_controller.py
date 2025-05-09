@@ -1,359 +1,317 @@
 #!/usr/bin/env python3
-
-import time
-import requests
+import networkx as nx
 import json
 import os
 import random
-import socket
+import time
 import threading
-import numpy as np
-import skfuzzy as fuzz
-from skfuzzy import control as ctrl
-
-# --- NO ML IMPORTS NEEDED HERE ANYMORE ---
-# # import ml_risk_assessor (REMOVED)
+from flask import Flask, jsonify, abort
+import math
 
 # --- Configuration ---
-CENTRAL_SERVER_URL = "http://192.168.254.200:5000"
-NODE_ID_FILE = "/etc/node_id"
-LIGHT_SENSOR_MAP_FILE = "/shared/light_sensor_map.json" # Expects static features + ML preds
-EVALUATION_INTERVAL_SECONDS = 5.0
-SENSOR_QUERY_TIMEOUT_SECONDS = 1.5
-CENTRAL_QUERY_TIMEOUT_SECONDS = 3.0
-SENSOR_LISTEN_PORT = 5001
-CONFIG_WAIT_TIMEOUT_SECONDS = 35
-CONFIG_CHECK_INTERVAL_SECONDS = 0.5
+GRAPH_DATA_FILE = '/shared/graph_structure.json'
+CLUSTER_MAP_FILE = '/shared/cluster_edge_map.json'
+# --- Simulation Parameters ---
+SIM_TIME_STEP_SECONDS = 2.0
+GROUP_SPAWN_INTERVAL_SECONDS = 1.5
+MAX_GROUPS = 50
+MIN_GROUP_SIZE = 2
+MAX_GROUP_SIZE = 8
 
-# --- Trust & Attribute Configuration ---
-INITIAL_DATA_TRUST_SCORE = 75.0
-TRUST_UPDATE_ALPHA = 0.3
-TRUST_DECAY_FAILURE = 5.0
-TRUST_DECAY_IMPLAUSIBLE = 3.0
-TRUST_FLOOR = 10.0
-TRUST_CEILING = 100.0
-TRUST_THRESHOLD_FOR_PREDICTION = 40.0
-MAX_PLAUSIBLE_TRAFFIC = 200
+# --- Global State (Protected by Lock) ---
+simulation_lock = threading.Lock()
+G = None
+cluster_to_edge = {}
+groups = {} # group_id -> {..., current_node, destination, path ...}
+edge_occupancy = {}
+next_group_id = 0
+# NEW: Log for cars that passed THROUGH a node in the last step
+# Key: node_id (int), Value: count of cars
+passed_through_node_log_current_step = {}
 
-# Fallbacks are mostly for internal use now if map is malformed,
-# as ML preds are expected to be IN the map file.
-FALLBACK_DEVICE_RELIABILITY_MAP = 70.0
-FALLBACK_PREDICTED_NOISE_PROP_MAP = 0.15
-FALLBACK_DATA_CONSISTENCY_MAP = 0.80
+# --- Simulation Logic ---
 
-
-# --- Fuzzy Logic Config (Antecedents will use values from sensor_attributes) ---
-deviation_universe = np.arange(0, 21, 1)
-device_reliability_universe = np.arange(0, 101, 1)
-data_consistency_universe = np.arange(0, 1.01, 0.01)
-predicted_noise_prop_universe = np.arange(0, 1.01, 0.01)
-trust_update_output_universe = np.arange(0, 101, 1)
-
-# --- Global State ---
-my_node_id = None
-# sensor_static_and_ml_profiles_map:
-# { 'edge_str': {'ip':..., 'manufacturer':..., 'ml_predicted_reliability':..., ...}, ... }
-sensor_static_and_ml_profiles_map = {}
-state_lock = threading.Lock()
-sensor_data_trust_scores = {} # { 'sensor_ip': current_data_trust_score }
-# sensor_attributes now directly uses values from the map (static + ML-derived)
-# and might hold dynamically updated scores like a running data_consistency
-sensor_attributes = {}   # { 'sensor_ip': {'device_reliability': X, 'data_consistency': Y, 'predicted_noise_propensity': Z} }
-
-# --- Fuzzy Logic Setup (remains the same as your last correct version) ---
-deviation = ctrl.Antecedent(deviation_universe, 'deviation')
-device_reliability_input = ctrl.Antecedent(device_reliability_universe, 'device_reliability_input')
-data_consistency_input = ctrl.Antecedent(data_consistency_universe, 'data_consistency_input')
-predicted_noise_prop_input = ctrl.Antecedent(predicted_noise_prop_universe, 'predicted_noise_prop_input')
-trust_update_consequent = ctrl.Consequent(trust_update_output_universe, 'trust_update_output')
-
-deviation['low'] = fuzz.trimf(deviation.universe, [0, 0, 5])
-deviation['medium'] = fuzz.trimf(deviation.universe, [3, 10, 17])
-deviation['high'] = fuzz.trimf(deviation.universe, [15, 20, 20])
-device_reliability_input['low'] = fuzz.trimf(device_reliability_input.universe, [0, 25, 50])
-device_reliability_input['medium'] = fuzz.trimf(device_reliability_input.universe, [40, 60, 80])
-device_reliability_input['high'] = fuzz.trimf(device_reliability_input.universe, [70, 85, 100])
-data_consistency_input['poor'] = fuzz.trimf(data_consistency_input.universe, [0, 0.25, 0.5])
-data_consistency_input['fair'] = fuzz.trimf(data_consistency_input.universe, [0.4, 0.6, 0.8])
-data_consistency_input['good'] = fuzz.trimf(data_consistency_input.universe, [0.7, 0.85, 1.0])
-predicted_noise_prop_input['low'] = fuzz.trimf(predicted_noise_prop_input.universe, [0, 0.15, 0.3])
-predicted_noise_prop_input['medium'] = fuzz.trimf(predicted_noise_prop_input.universe, [0.2, 0.4, 0.6])
-predicted_noise_prop_input['high'] = fuzz.trimf(predicted_noise_prop_input.universe, [0.5, 0.75, 1.0])
-trust_update_consequent['low'] = fuzz.trimf(trust_update_consequent.universe, [0, 20, 40])
-trust_update_consequent['medium'] = fuzz.trimf(trust_update_consequent.universe, [30, 50, 70])
-trust_update_consequent['high'] = fuzz.trimf(trust_update_consequent.universe, [60, 80, 100])
-
-rule1 = ctrl.Rule(deviation['low'] & device_reliability_input['high'] & data_consistency_input['good'] & predicted_noise_prop_input['low'], trust_update_consequent['high'])
-rule2 = ctrl.Rule(deviation['medium'] & device_reliability_input['medium'], trust_update_consequent['medium'])
-rule3 = ctrl.Rule(deviation['high'] | device_reliability_input['low'] | data_consistency_input['poor'] | predicted_noise_prop_input['high'], trust_update_consequent['low'])
-rule4 = ctrl.Rule(predicted_noise_prop_input['medium'] & deviation['low'], trust_update_consequent['medium'])
-# Add more rules for comprehensive logic
-
-try:
-    fuzzy_antecedents = [deviation, device_reliability_input, data_consistency_input, predicted_noise_prop_input]
-    trust_ctrl_system = ctrl.ControlSystem([rule1, rule2, rule3, rule4])
-    trust_simulation_instance = ctrl.ControlSystemSimulation(trust_ctrl_system)
-    print("Fuzzy control system initialized successfully.")
-except Exception as e:
-    print(f"FATAL: Failed to initialize fuzzy control system: {e}")
-    trust_simulation_instance = None
-# --- End Fuzzy Logic Setup ---
-
-def get_node_id():
-    # ... (no changes) ...
-    if not os.path.exists(NODE_ID_FILE): print(f"Error: {NODE_ID_FILE} not found"); return None
+def load_graph_data():
+    global G, cluster_to_edge, edge_occupancy
+    print("Loading graph data and cluster map...")
+    if not os.path.exists(GRAPH_DATA_FILE): print(f"Error: Graph data file not found at {GRAPH_DATA_FILE}"); return False
+    if not os.path.exists(CLUSTER_MAP_FILE): print(f"Error: Cluster map file not found at {CLUSTER_MAP_FILE}"); return False
     try:
-        with open(NODE_ID_FILE, 'r') as f: return int(f.readline().strip())
-    except Exception as e: print(f"Error reading {NODE_ID_FILE}: {e}"); return None
-
-
-def load_sensor_map_and_attributes(node_id):
-    """
-    Loads the sensor map (which includes static features AND pre-calculated ML predictions).
-    Initializes data_trust_scores and sensor_attributes from the map.
-    """
-    global sensor_static_and_ml_profiles_map, sensor_data_trust_scores, sensor_attributes
-    if node_id is None: return False
-    if not os.path.exists(LIGHT_SENSOR_MAP_FILE):
-        print(f"Error: Map file {LIGHT_SENSOR_MAP_FILE} not found.")
-        return False
-    try:
-        with open(LIGHT_SENSOR_MAP_FILE, 'r') as f: full_map_data = json.load(f)
-        node_id_str = str(node_id)
-        if node_id_str in full_map_data:
-            sensor_static_and_ml_profiles_map = full_map_data[node_id_str] # This is the rich map
-            print(f"Loaded sensor static & ML profiles map for Node {node_id}: {len(sensor_static_and_ml_profiles_map)} sensors.")
-
-            with state_lock:
-                sensor_data_trust_scores.clear()
-                sensor_attributes.clear()
-                for edge_str, full_profile in sensor_static_and_ml_profiles_map.items():
-                    sensor_ip = full_profile.get("ip")
-                    if not sensor_ip:
-                        print(f"Warning: Sensor IP missing for edge {edge_str} in map. Skipping.")
-                        continue
-
-                    sensor_data_trust_scores[sensor_ip] = INITIAL_DATA_TRUST_SCORE # Initial trust in data stream
-
-                    # Populate sensor_attributes directly from the map (ML predictions + fallbacks done by automation.py)
-                    current_sensor_attrs = {}
-                    current_sensor_attrs['device_reliability'] = float(full_profile.get('ml_predicted_reliability', FALLBACK_DEVICE_RELIABILITY_MAP))
-                    current_sensor_attrs['predicted_noise_propensity'] = float(full_profile.get('ml_predicted_noise_propensity', FALLBACK_PREDICTED_NOISE_PROP_MAP))
-                    current_sensor_attrs['data_consistency'] = float(full_profile.get('ml_initial_data_consistency', FALLBACK_DATA_CONSISTENCY_MAP))
-                    # Add other static features if fuzzy logic needs them directly (though usually not)
-                    # current_sensor_attrs['manufacturer'] = full_profile.get('manufacturer') 
-                    sensor_attributes[sensor_ip] = current_sensor_attrs
-
-                print(f"Initialized data trust scores: {sensor_data_trust_scores}")
-                print(f"Initialized sensor attributes from map (ML-derived/fallback): {sensor_attributes}")
-            return bool(sensor_static_and_ml_profiles_map)
-        else:
-            print(f"Warning: Node {node_id_str} not found in map file: {LIGHT_SENSOR_MAP_FILE}")
-            sensor_static_and_ml_profiles_map = {}
-            return False
+        with open(GRAPH_DATA_FILE, 'r') as f:
+            graph_json = json.load(f)
+            # Ensure node IDs are integers if they are stored as strings in JSON
+            # This is important if G.nodes() are integers later.
+            if graph_json['nodes'] and isinstance(graph_json['nodes'][0]['id'], str):
+                 # Convert node IDs in links as well if they are strings
+                for link in graph_json['links']:
+                    link['source'] = int(link['source'])
+                    link['target'] = int(link['target'])
+                # Convert node IDs themselves
+                for node_data in graph_json['nodes']:
+                    node_data['id'] = int(node_data['id'])
+            G = nx.node_link_graph(graph_json)
+            print(f"Successfully loaded graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
+            edge_occupancy = {tuple(sorted(edge)): set() for edge in G.edges()}
+        with open(CLUSTER_MAP_FILE, 'r') as f:
+            loaded_map = json.load(f)
+            cluster_to_edge = {
+                str(cid): tuple(sorted(map(int, data['edge'])))
+                for cid, data in loaded_map.items()
+                if 'edge' in data and isinstance(data['edge'], list) and len(data['edge']) == 2
+            }
+            print(f"Successfully loaded cluster map for {len(cluster_to_edge)} clusters.")
+        return True
     except Exception as e:
-        print(f"Error loading/parsing augmented map {LIGHT_SENSOR_MAP_FILE}: {e}")
-        sensor_static_and_ml_profiles_map = {}
-        return False
+        print(f"Error loading data: {e}"); G = None; cluster_to_edge = {}; edge_occupancy = {}; return False
 
-def query_sensor_raw(sensor_ip, port):
-    # ... (no changes) ...
+def get_total_cars_on_edge(edge_key):
+    total_cars = 0
+    group_ids_on_edge = edge_occupancy.get(tuple(sorted(edge_key)), set())
+    for group_id in list(group_ids_on_edge):
+        group = groups.get(group_id)
+        if group: total_cars += group.get('size', 0)
+    return total_cars
+
+def calculate_dynamic_travel_time(edge_data, current_total_cars_on_edge):
+    speed_limit = edge_data.get('speed_limit', 60)
+    capacity = edge_data.get('capacity', 50)
+    distance = edge_data.get('distance', 1.0)
+    if capacity <= 0: return float('inf')
+    congestion_factor = min(1.0, current_total_cars_on_edge / capacity)
+    effective_speed = speed_limit if congestion_factor <= 0.1 else max(1, speed_limit / (2 ** (congestion_factor * 3)))
+    if effective_speed <= 0: return float('inf')
+    travel_time_minutes = (distance / effective_speed) * 60
+    return travel_time_minutes
+
+def find_dynamic_route(source, destination):
+    if G is None: return None
     try:
-        with socket.create_connection((sensor_ip, port), timeout=SENSOR_QUERY_TIMEOUT_SECONDS) as sock:
-            sock.sendall(b"GET_TRAFFIC\n"); response_bytes = sock.recv(1024)
-            response_str = response_bytes.decode('utf-8').strip()
-            if response_str.startswith("TRAFFIC="):
-                try: value = int(response_str.split('=', 1)[1]); return value
-                except (IndexError, ValueError): print(f"Error: Bad traffic value from {sensor_ip}: {response_str}"); return None
-            else: print(f"Error: Bad response format from {sensor_ip}: {response_str}"); return None
-    except socket.timeout: print(f"Error: Timeout connecting to sensor {sensor_ip}:{port}"); return None
-    except socket.error as e: print(f"Error: Socket error for sensor {sensor_ip}:{port} - {e}"); return None
-    except Exception as e: print(f"Error: Unexpected error querying sensor {sensor_ip}:{port} - {e}"); return None
+        def weight_func(u, v, data):
+            edge_key = tuple(sorted((u, v)))
+            with simulation_lock: # Protect access to shared edge_occupancy
+                 current_total_cars = get_total_cars_on_edge(edge_key)
+            return calculate_dynamic_travel_time(data, current_total_cars)
+        path = nx.shortest_path(G, source, destination, weight=weight_func)
+        return path
+    except nx.NetworkXNoPath: return None
+    except Exception as e: print(f"Error finding dynamic route from {source} to {destination}: {e}"); return None
 
-
-def get_local_traffic_readings():
-    # ... (uses sensor_static_and_ml_profiles_map to iterate, no other changes) ...
-    if not sensor_static_and_ml_profiles_map: print("Warning: No sensor map loaded."); return None
-    local_traffic = {}; print("Querying local sensors via raw sockets...")
-    for edge_str, sensor_profile in sensor_static_and_ml_profiles_map.items():
-        sensor_ip = sensor_profile.get("ip")
-        if not sensor_ip: continue
-        traffic_value = query_sensor_raw(sensor_ip, SENSOR_LISTEN_PORT)
-        local_traffic[edge_str] = traffic_value; print(f"  Sensor {sensor_ip} (Edge {edge_str}): Reported {traffic_value}")
-    if all(v is None for v in local_traffic.values()) and sensor_static_and_ml_profiles_map: print("Warning: Failed to get readings from any local sensor this cycle."); return None
-    else: return local_traffic
-
-
-def get_ground_truth_traffic(node_id):
-    # ... (no changes) ...
-    if node_id is None: return None
-    target_url = f"{CENTRAL_SERVER_URL}/approaching_traffic/{node_id}"
-    try:
-        response = requests.get(target_url, timeout=CENTRAL_QUERY_TIMEOUT_SECONDS); response.raise_for_status(); data = response.json()
-        return data.get("traffic_per_approach", {})
-    except Exception as e: print(f"Error querying central server for ground truth: {e}"); return None
-
-def update_trust_scores(local_readings, ground_truth_data):
-    # ... (logic remains very similar, but it fetches initial scores from sensor_attributes) ...
-    global sensor_data_trust_scores, sensor_attributes, trust_simulation_instance
-    if not sensor_static_and_ml_profiles_map: return
-    if trust_simulation_instance is None:
-        print("Warning: Fuzzy system not available, applying simple decay for data trust update.")
-        with state_lock:
-            for profile in sensor_static_and_ml_profiles_map.values(): # Iterate over profiles to get IPs
-                sensor_ip = profile.get("ip")
-                if sensor_ip:
-                    current_score = sensor_data_trust_scores.get(sensor_ip, INITIAL_DATA_TRUST_SCORE)
-                    new_score = max(TRUST_FLOOR, current_score - TRUST_DECAY_FAILURE / 2)
-                    sensor_data_trust_scores[sensor_ip] = new_score
-                    # print(f"    Sensor {sensor_ip}: FUZZY UNAVAILABLE. Simple decay. DataTrust -> {new_score:.1f}")
-        return
-
-    print("  Updating Data Trust Scores (using Fuzzy Logic with pre-calculated ML-derived attributes):")
-    with state_lock:
-        for edge_str, sensor_profile_in_map in sensor_static_and_ml_profiles_map.items():
-            sensor_ip = sensor_profile_in_map.get("ip")
-            if not sensor_ip: continue
-
-            local_value = local_readings.get(edge_str) if local_readings else None
-            truth_value = ground_truth_data.get(edge_str) if ground_truth_data else None
-            
-            current_data_trust = sensor_data_trust_scores.get(sensor_ip, INITIAL_DATA_TRUST_SCORE)
-            # Get pre-calculated ML-derived attributes for this sensor
-            attrs = sensor_attributes.get(sensor_ip, {}) # Should have been populated by load_sensor_map_and_attributes
-            initial_ml_device_reliability = attrs.get('device_reliability', FALLBACK_DEVICE_RELIABILITY_MAP)
-            initial_ml_data_consistency = attrs.get('data_consistency', FALLBACK_DATA_CONSISTENCY_MAP)
-            initial_ml_predicted_noise_prop = attrs.get('predicted_noise_propensity', FALLBACK_PREDICTED_NOISE_PROP_MAP)
-
-            new_data_trust = current_data_trust
-
-            if local_value is None or local_value < 0:
-                new_data_trust -= TRUST_DECAY_FAILURE
-                print(f"    Sensor {sensor_ip} (Edge {edge_str}): Query/Report FAILED ({local_value}). DataTrust -> {new_data_trust:.1f}")
-            elif not (0 <= local_value <= MAX_PLAUSIBLE_TRAFFIC):
-                new_data_trust -= TRUST_DECAY_IMPLAUSIBLE
-                print(f"    Sensor {sensor_ip} (Edge {edge_str}): IMPLAUSIBLE Reading ({local_value}). DataTrust -> {new_data_trust:.1f}")
-            elif truth_value is not None and truth_value >= 0:
-                dev = abs(local_value - truth_value)
-                dev_clipped = min(dev, deviation.universe[-1])
-                try:
-                    trust_simulation_instance.input['deviation'] = dev_clipped
-                    trust_simulation_instance.input['device_reliability_input'] = initial_ml_device_reliability
-                    trust_simulation_instance.input['data_consistency_input'] = initial_ml_data_consistency
-                    trust_simulation_instance.input['predicted_noise_prop_input'] = initial_ml_predicted_noise_prop
-                    
-                    trust_simulation_instance.compute()
-                    fuzzy_trust_output = trust_simulation_instance.output['trust_update_output']
-                    
-                    new_data_trust = (1 - TRUST_UPDATE_ALPHA) * current_data_trust + TRUST_UPDATE_ALPHA * fuzzy_trust_output
-                    print(f"    Sensor {sensor_ip} (Edge {edge_str}): Local={local_value}, Truth={truth_value}, Dev={dev:.1f}")
-                    print(f"      FuzzyInputs (from map/ML): DevRel={initial_ml_device_reliability:.1f}, DataCons={initial_ml_data_consistency:.2f}, NoiseProp={initial_ml_predicted_noise_prop:.2f}")
-                    print(f"      FuzzyOutput={fuzzy_trust_output:.1f} => NewDataTrust={new_data_trust:.1f}")
-                except Exception as e:
-                     print(f"    Error computing fuzzy logic for sensor {sensor_ip}: {e}")
-                     new_data_trust -= TRUST_DECAY_FAILURE
-                     print(f"    Sensor {sensor_ip} (Edge {edge_str}): FUZZY ERROR. DataTrust -> {new_data_trust:.1f}")
-            else:
-                new_data_trust -= (TRUST_DECAY_FAILURE / 2)
-                print(f"    Sensor {sensor_ip} (Edge {edge_str}): Plausible Reading ({local_value}), but no ground truth. DataTrust -> {new_data_trust:.1f}")
-            
-            sensor_data_trust_scores[sensor_ip] = max(TRUST_FLOOR, min(TRUST_CEILING, new_data_trust))
-
-def predict_priority_edge(traffic_data_source_map, is_local_data=False):
-    # ... (logic to use sensor_static_and_ml_profiles_map for IP lookup remains similar)
-    if not traffic_data_source_map: return None
-    relevant_readings = {}
-    if is_local_data:
-        print("  Filtering local readings by data trust for prediction:")
-        with state_lock: current_data_trust_map = sensor_data_trust_scores.copy()
-        for edge_str, count in traffic_data_source_map.items():
-            sensor_ip_for_edge = None
-            if sensor_static_and_ml_profiles_map:
-                profile_data = sensor_static_and_ml_profiles_map.get(edge_str)
-                if profile_data: sensor_ip_for_edge = profile_data.get("ip")
-
-            if sensor_ip_for_edge:
-                trust_score = current_data_trust_map.get(sensor_ip_for_edge, 0)
-                if count is not None and count >= 0:
-                    if trust_score >= TRUST_THRESHOLD_FOR_PREDICTION:
-                        relevant_readings[edge_str] = count
-                        # print(f"    Edge {edge_str} (Sensor {sensor_ip_for_edge}): TRUSTED (DataTrust: {trust_score:.1f}, Reading: {count})")
-                    # else:
-                        # print(f"    Edge {edge_str} (Sensor {sensor_ip_for_edge}): UNTRUSTED (DataTrust: {trust_score:.1f}) - Reading {count} ignored.")
-            elif count is not None:
-                 print(f"    Warning: Edge {edge_str} (Reading: {count}) from local data not mapped to a known sensor IP. Ignoring.")
-    else: 
-        relevant_readings = traffic_data_source_map
-    if not relevant_readings: return None
-    valid_counts = {k: v for k, v in relevant_readings.items() if v is not None and v >=0}
-    if not valid_counts: return None
-    try: max_reading = max(valid_counts.values())
-    except ValueError: return None
-    priority_edges = [edge_str for edge_str, count in valid_counts.items() if count == max_reading]
-    if not priority_edges: return None
-    return sorted(priority_edges)[0]
-
-
-# --- Main Loop ---
-if __name__ == "__main__":
-    print("--- Traffic Light Controller (Consuming Pre-Calculated ML Scores for Fuzzy Logic) ---")
+def spawn_group():
+    global next_group_id
+    if G is None or len(G.nodes()) < 2: return
     
-    # NO ML MODEL LOADING HERE ANYMORE
+    nodes = list(G.nodes()) # Assumes node IDs are integers if graph loaded them as such
+    source = random.choice(nodes)
+    destination = random.choice(nodes)
+    while destination == source: destination = random.choice(nodes)
 
-    start_wait_time = time.time()
-    node_id_loaded = False
-    map_and_attributes_loaded = False # This means the rich map is loaded
-    while time.time() - start_wait_time < CONFIG_WAIT_TIMEOUT_SECONDS:
-        if not node_id_loaded:
-            my_node_id = get_node_id()
-            if my_node_id is not None: node_id_loaded = True; print(f"Node ID {my_node_id} loaded.")
-        
-        if node_id_loaded and not map_and_attributes_loaded:
-            if load_sensor_map_and_attributes(my_node_id): # This now expects ML scores in the map
-                map_and_attributes_loaded = True
-                print("Sensor map (with static features & pre-calculated ML attributes) loaded.")
-        
-        if node_id_loaded and map_and_attributes_loaded: break
-        time.sleep(CONFIG_CHECK_INTERVAL_SECONDS)
+    path = find_dynamic_route(source, destination)
 
-    # ... (rest of the main loop is largely the same, logging and evaluation) ...
-    if not node_id_loaded: exit("FATAL: Could not determine Node ID.")
-    if not map_and_attributes_loaded: print("Warning: Sensor map/attributes not fully loaded. Predictions may be impaired.")
-    if trust_simulation_instance is None: print("CRITICAL WARNING: Fuzzy logic system failed. Trust updates will be basic.")
-    if not sensor_static_and_ml_profiles_map: print("CRITICAL WARNING: No sensors mapped. Prediction impossible.")
+    if path and len(path) > 1:
+        with simulation_lock: # Protect groups and edge_occupancy
+             if len(groups) >= MAX_GROUPS: return
+             group_id = next_group_id; next_group_id += 1
+             group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
+             start_node = path[0]; next_node = path[1]
+             current_edge = tuple(sorted((start_node, next_node)))
+             groups[group_id] = {
+                 "id": group_id, "size": group_size,
+                 "current_edge": current_edge, "pos_on_edge": 0.0,
+                 "path": path, "destination": destination,
+                 "current_node": start_node,
+             }
+             edge_occupancy.setdefault(current_edge, set()).add(group_id)
 
-    print(f"Controller active for Node ID: {my_node_id if my_node_id else 'UNKNOWN'}")
+def update_group_positions(time_step):
+    global passed_through_node_log_current_step # Access global
+    if G is None: return
 
+    groups_to_remove = []
+    groups_to_move_to_new_edge = {}
+    
+    # Snapshot groups to iterate, as 'groups' dict might change
+    # This needs to be under the simulation_lock if 'groups' or 'edge_occupancy' are modified by other threads
+    # (which they are not in this specific design, only by this function called from simulation_loop)
+    current_groups_snapshot = list(groups.items()) # Shallow copy of items
+    current_edge_total_cars_snapshot = {edge: get_total_cars_on_edge(edge) for edge in edge_occupancy}
+
+    for group_id, group_data in current_groups_snapshot:
+        # Make a copy of the group data to work with, to avoid modifying the iterated item directly
+        # if group_data itself is a mutable dict and we plan to change it before the main update.
+        # However, we are mostly reading from it and then updating the main 'groups' dict later.
+        group = groups.get(group_id) # Get the latest version of the group
+        if not group: continue # Group might have been removed
+
+        current_edge_tuple = group["current_edge"]
+        if not current_edge_tuple:
+            groups_to_remove.append(group_id); continue
+
+        edge_data = G.get_edge_data(*current_edge_tuple)
+        if not edge_data:
+            groups_to_remove.append(group_id); continue
+
+        distance_on_edge = edge_data.get('distance', 1.0)
+        cars_on_this_edge = current_edge_total_cars_snapshot.get(current_edge_tuple, 0)
+        travel_time_minutes = calculate_dynamic_travel_time(edge_data, cars_on_this_edge)
+
+        if travel_time_minutes == float('inf') or travel_time_minutes <= 0: continue
+
+        speed_units_per_minute = distance_on_edge / travel_time_minutes
+        speed_units_per_second = speed_units_per_minute / 60.0
+        distance_moved_this_step = speed_units_per_second * time_step
+        fraction_moved_this_step = distance_moved_this_step / distance_on_edge if distance_on_edge > 0 else 1.0
+
+        new_pos_on_edge = group["pos_on_edge"] + fraction_moved_this_step
+
+        if new_pos_on_edge >= 1.0:
+            start_node_of_completed_edge = group["current_node"]
+            end_node_of_completed_edge = current_edge_tuple[0] if current_edge_tuple[1] == start_node_of_completed_edge else current_edge_tuple[1]
+            
+            try:
+                current_path_index = group["path"].index(end_node_of_completed_edge)
+            except ValueError:
+                groups_to_remove.append(group_id); continue
+
+            if end_node_of_completed_edge == group["destination"]:
+                groups_to_remove.append(group_id)
+                # NEW: Log passage even if it's the destination, as it passed *through* this node to finish
+                passed_through_node_log_current_step[end_node_of_completed_edge] = \
+                    passed_through_node_log_current_step.get(end_node_of_completed_edge, 0) + group.get("size", 0)
+
+            elif current_path_index + 1 < len(group["path"]):
+                # NEW: Log passage through this intermediate node
+                passed_through_node_log_current_step[end_node_of_completed_edge] = \
+                    passed_through_node_log_current_step.get(end_node_of_completed_edge, 0) + group.get("size", 0)
+
+                next_node_in_path = group["path"][current_path_index + 1]
+                new_edge_tuple = tuple(sorted((end_node_of_completed_edge, next_node_in_path)))
+                if G.has_edge(end_node_of_completed_edge, next_node_in_path):
+                    groups_to_move_to_new_edge[group_id] = {
+                        "old_edge": current_edge_tuple, "new_edge": new_edge_tuple,
+                        "new_start_node": end_node_of_completed_edge, "path": group["path"]
+                    }
+                else: groups_to_remove.append(group_id)
+            else: groups_to_remove.append(group_id)
+        else:
+            if group_id in groups: groups[group_id]["pos_on_edge"] = new_pos_on_edge
+    
+    for group_id in groups_to_remove:
+        if group_id in groups:
+            old_edge_key = groups[group_id]["current_edge"]
+            if old_edge_key in edge_occupancy and group_id in edge_occupancy[old_edge_key]:
+                edge_occupancy[old_edge_key].remove(group_id)
+            del groups[group_id]
+
+    for group_id, move_data in groups_to_move_to_new_edge.items():
+        if group_id in groups:
+            old_edge = move_data["old_edge"]; new_edge = move_data["new_edge"]
+            if old_edge in edge_occupancy and group_id in edge_occupancy[old_edge]:
+                edge_occupancy[old_edge].remove(group_id)
+            groups[group_id].update({
+                "current_edge": new_edge, "pos_on_edge": 0.0,
+                "current_node": move_data["new_start_node"], "path": move_data["path"]
+            })
+            edge_occupancy.setdefault(new_edge, set()).add(group_id)
+
+def simulation_loop():
+    global passed_through_node_log_current_step
+    print("Simulation loop started.")
+    last_spawn_time = time.time()
     while True:
-        start_time = time.time(); current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
-        print(f"\n[{current_time_str}] Evaluating Node {my_node_id if my_node_id else 'UNKNOWN'}")
+        start_step_time = time.time()
+        with simulation_lock:
+            if G is None: time.sleep(1); continue
+            
+            passed_through_node_log_current_step.clear() # Clear at the start of the step
 
-        local_readings = get_local_traffic_readings() if sensor_static_and_ml_profiles_map else {}
-        ground_truth_data = get_ground_truth_traffic(my_node_id)
-        update_trust_scores(local_readings, ground_truth_data)
+            current_time = time.time()
+            if current_time - last_spawn_time >= GROUP_SPAWN_INTERVAL_SECONDS:
+                spawn_group()
+                last_spawn_time = current_time
+            
+            update_group_positions(SIM_TIME_STEP_SECONDS)
 
-        predicted_edge_str = predict_priority_edge(local_readings, is_local_data=True)
-        actual_priority_edge_str = predict_priority_edge(ground_truth_data, is_local_data=False) if ground_truth_data else "Error (No GT)"
-
-        print(f"  Local Sensor Readings Raw: {local_readings if local_readings else 'Query Failed/No Sensors'}")
-        with state_lock:
-            print(f"  Current Data Trust Scores: { {ip: f'{score:.1f}' for ip, score in sensor_data_trust_scores.items()} }")
-            print(f"  Initial Sensor Attributes (from map via automation.py/ML): ")
-            for ip, attrs in sensor_attributes.items(): # sensor_attributes now holds the initial values
-                 print(f"    {ip}: DevRel={attrs.get('device_reliability', 'N/A'):.1f}, DataCons={attrs.get('data_consistency', 'N/A'):.2f}, NoiseProp={attrs.get('predicted_noise_propensity', 'N/A'):.2f}")
-
-        print(f"  Prediction (based on trusted local): Priority -> {predicted_edge_str if predicted_edge_str else 'None'}")
-        print(f"  Ground Truth Traffic:        {ground_truth_data if ground_truth_data else 'Query Failed/No Node ID'}")
-        print(f"  Ground Truth Priority:       -> {actual_priority_edge_str if actual_priority_edge_str else 'None'}")
-
-        eval_result = "INCONCLUSIVE"
-        if actual_priority_edge_str == "Error (No GT)": eval_result = "TRUTH_ERROR"
-        elif predicted_edge_str == actual_priority_edge_str: eval_result = "CORRECT"
-        elif predicted_edge_str is None and actual_priority_edge_str is None: eval_result = "CORRECT (Both None)"
-        elif predicted_edge_str is None and actual_priority_edge_str is not None: eval_result = "INCORRECT (Predicted None, GT had priority)"
-        elif predicted_edge_str is not None and actual_priority_edge_str is None: eval_result = "INCORRECT (Predicted priority, GT had None)"
-        else: eval_result = "INCORRECT"
-        print(f"  EVALUATION:                  Prediction {eval_result}")
-
-        end_time = time.time(); sleep_time = max(0, EVALUATION_INTERVAL_SECONDS - (end_time - start_time))
+        end_step_time = time.time()
+        time_taken = end_step_time - start_step_time
+        sleep_time = max(0, SIM_TIME_STEP_SECONDS - time_taken)
         time.sleep(sleep_time)
+
+# --- Flask API ---
+app = Flask(__name__)
+
+@app.route('/traffic/<int:cluster_id>', methods=['GET'])
+def get_traffic_for_sensor(cluster_id):
+    # ... (no change from previous version)
+    cluster_id_str = str(cluster_id)
+    if not cluster_to_edge: abort(503, description="Cluster map not loaded by server.")
+    monitored_edge = cluster_to_edge.get(cluster_id_str)
+    if not monitored_edge: abort(404, description=f"No edge mapped for Cluster ID: {cluster_id_str}")
+    edge_key = monitored_edge
+    total_car_count = 0
+    with simulation_lock: total_car_count = get_total_cars_on_edge(edge_key)
+    return jsonify({"cluster_id": cluster_id, "edge_u": edge_key[0], "edge_v": edge_key[1], "current_traffic_count": total_car_count})
+
+
+@app.route('/approaching_traffic/<int:node_id>', methods=['GET'])
+def get_approaching_traffic(node_id):
+    # ... (no change from previous version)
+    if G is None: abort(503, description="Graph not loaded.")
+    if node_id not in G.nodes(): abort(404, description=f"Node {node_id} not found.") # Check G.nodes()
+    approaching_traffic = {}
+    with simulation_lock:
+        for neighbor in G.neighbors(node_id):
+            edge_key = tuple(sorted((node_id, neighbor)))
+            count = 0
+            group_ids_on_edge = edge_occupancy.get(edge_key, set())
+            for group_id in list(group_ids_on_edge):
+                 group = groups.get(group_id)
+                 if group and group.get("current_node") == neighbor: # Traveling from neighbor towards node_id
+                     count += group.get("size", 0)
+            # Key indicates traffic on edge (neighbor-node_id) approaching node_id
+            approaching_traffic[f"{neighbor}-{node_id}"] = count
+    return jsonify({ "node_id": node_id, "traffic_per_approach": approaching_traffic })
+
+# --- MODIFIED API ENDPOINT for Passage Confirmation AT A NODE ---
+@app.route('/passed_through_node_count/<int:node_id>', methods=['GET'])
+def get_passed_through_node_count_api(node_id):
+    """Returns the number of cars that passed through the specified node in the last simulation step."""
+    if G is None: abort(503, description="Graph not loaded.")
+    if node_id not in G.nodes(): abort(404, description=f"Node {node_id} not found in graph.")
+
+    count = 0
+    with simulation_lock:
+        # passed_through_node_log_current_step stores counts from the *previous completed* simulation step
+        count = passed_through_node_log_current_step.get(node_id, 0)
+        
+    # print(f"DEBUG API /passed_through_node_count: Node {node_id}, Count {count}, Log: {passed_through_node_log_current_step}")
+    return jsonify({"node_id": node_id, "cars_passed_through_last_step": count})
+
+
+@app.route('/status', methods=['GET'])
+def status():
+    # ... (no change from previous version)
+    with simulation_lock:
+        num_groups = len(groups); total_cars_in_sim = sum(g.get('size', 0) for g in groups.values())
+        num_edges_occupied = sum(1 for groups_on_edge in edge_occupancy.values() if groups_on_edge)
+    return jsonify({"status": "running", "graph_loaded": G is not None,
+                    "cluster_map_loaded": bool(cluster_to_edge), "active_groups": num_groups,
+                    "active_cars_total": total_cars_in_sim, "edges_occupied": num_edges_occupied})
+
+# --- Main Execution ---
+if __name__ == '__main__':
+    print("--- Real-time Traffic Server Starting (with Node Passage Confirmation) ---")
+    if not load_graph_data():
+        print("FATAL Error: Failed to load initial graph/map data. Exiting.")
+        exit(1)
+        
+    sim_thread = threading.Thread(target=simulation_loop, daemon=True)
+    sim_thread.start()
+    print("Simulation thread started.")
+    print(f"Starting Flask server on 0.0.0.0:5000...")
+    try:
+        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    except OSError as e:
+        print(f"\n!!! Flask server failed to start (port 5000 likely in use): {e} !!!")
+    finally:
+        print("--- Traffic Server Shutting Down ---")
+
