@@ -1,13 +1,17 @@
 # Dockerfile for bensrubishcode/traffic_light
-# Runs traffic_light_controller.py: Waits for config, queries sensors (raw socket) & central server (HTTP).
+# Runs traffic_light_controller.py: Queries sensors (raw socket),
+# evaluates trust (fuzzy logic using pre-calculated ML scores from map),
+# queries central server (HTTP).
+# This version does NOT include ML model loading or prediction.
 
 # Use a lightweight Python base image
 FROM python:3.9-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED 1
+ENV MPLCONFIGDIR /tmp/matplotlib # To prevent matplotlib font cache issues
 
-# Install necessary system tools and python libraries
+# Install necessary system tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -16,21 +20,28 @@ RUN apt-get update && \
         iproute2 \
         net-tools \
         nano \
-        # Add other debugging tools if needed
-    # Install python requests library (needed for central server query)
-    && pip install --no-cache-dir requests \
     # Clean up APT cache
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Install required python libraries for fuzzy logic and communication
+RUN pip install --no-cache-dir \
+    requests \
+    numpy \
+    scipy \
+    scikit-fuzzy \
+    packaging \
+    networkx
+    # Added 'packaging' as it's a dependency for scikit-fuzzy
+    # Added 'networkx' as it's a dependency for skfuzzy.control
+    # pandas and scikit-learn are NOT needed here anymore as ML prediction is done by automation.py
 
 # Set the working directory
 WORKDIR /app
 
 # Copy the controller script into the container
-# *** IMPORTANT: Make sure this filename matches your traffic light script ***
-# *** (e.g., the one from immersive id="traffic_light_controller_wait_loop_correct") ***
+# This script will read static features AND pre-calculated ML scores from the map file.
 COPY traffic_light_controller.py .
+# NO NEED to copy ml_risk_assessor.py or .joblib model files here anymore.
 
 # Command to run when the container starts
-# *** MODIFIED: Run the python script directly ***
 CMD ["python", "traffic_light_controller.py"]

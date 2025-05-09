@@ -1,9 +1,14 @@
 ifconfig eth0 10.2.1.1/24 up
 route add default gw 10.2.1.254 dev eth0
 
-# Client cluster2_machine1 Startup Commands
-echo "Setting client identity files..."
+# Client cluster2_machine1 (Sensor) Startup Commands
+echo "Setting client identity and behavior files..."
 echo 2 > /etc/cluster_id
-echo EDGE=0-3 > /etc/edge_info
-echo NOISY=false > /etc/sensor_config
-# Python script started by Docker CMD
+echo EDGE=0-9 > /etc/edge_info
+echo MANUFACTURER=GoodSensorCorp > /etc/sensor_profile
+echo SOFTWARE_VERSION=v2.1.0-signed >> /etc/sensor_profile
+echo IS_SIGNED=true >> /etc/sensor_profile
+echo SOFTWARE_AGE_YEARS=0.5 >> /etc/sensor_profile
+echo DEVICE_AGE_YEARS=2.31 >> /etc/sensor_profile
+echo MAKE_NOISY=false > /etc/sensor_config
+# Python script for sensor_server.py is started by Docker CMD
