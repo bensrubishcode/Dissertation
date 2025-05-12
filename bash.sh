@@ -3,7 +3,7 @@
 # Orchestration script for setting up the distributed ITS simulation:
 # 1. Cleans previous Kathara lab.
 # 2. Runs automation.py to:
-#    - Generate network graph, device configurations, and Kathara's lab.confu.
+#    - Generate network graph, device configurations, and Kathara's lab.confu using provided or default parameters.
 #    - Assign static profiles (manufacturer, software, age) to sensors.
 #    - Perform ML predictions (if models exist) for initial sensor attributes
 #      and embed them in light_sensor_map.json.
@@ -16,20 +16,65 @@
 # 7. Appends device-specific commands from cmd_snippets to startup scripts.
 # 8. Starts the Kathara lab.
 
-# --- Configuration ---
+# --- Default Configuration ---
+DEFAULT_NUM_NODES=20
+DEFAULT_DENSITY_FACTOR=0.3
+DEFAULT_GRAPH_SEED="random" # automation.py will handle "random" by picking an int
+DEFAULT_REFRESH_ML=false
+
+# --- File/Directory Names (Constants) ---
 SNIPPET_DIR="cmd_snippets"
 GRAPH_DATA_FILE="graph_structure.json"
-LIGHT_SENSOR_MAP_FILE="light_sensor_map.json" # Will contain static features + ML predictions
+LIGHT_SENSOR_MAP_FILE="light_sensor_map.json"
 CLUSTER_MAP_FILE="cluster_edge_map.json"
 ML_TRAINING_DATA_FILE="ml_training_data.csv"
+ML_PREPROCESSOR_FILE="ml_preprocessor.joblib"
+ML_RELIABILITY_MODEL_FILE="inherent_reliability_model.joblib"
+ML_NOISY_MODEL_FILE="configured_noisy_model.joblib"
+
 PYTHON_EXECUTABLE="python3" # Ensure this is your correct python3 command
 
-# --- Main Execution ---
+# --- Helper Functions ---
+show_help() {
+    echo "Usage: $0 [options]"
+    echo
+    echo "Options:"
+    echo "  -n, --nodes <num>         Exact number of nodes for the graph (default: $DEFAULT_NUM_NODES)."
+    echo "  -d, --density <float>     Graph density factor (0.0-1.0) (default: $DEFAULT_DENSITY_FACTOR)."
+    echo "  -s, --seed <int|random>   Graph generation seed (default: $DEFAULT_GRAPH_SEED)."
+    echo "  -r, --refresh-ml          Refresh ML model: delete training data and saved models before run."
+    echo "  -h, --help                Show this help message."
+    exit 0
+}
+
+# --- Parse Command-Line Arguments ---
+# Initialize with defaults
+NUM_NODES=$DEFAULT_NUM_NODES
+DENSITY_FACTOR=$DEFAULT_DENSITY_FACTOR
+GRAPH_SEED=$DEFAULT_GRAPH_SEED
+REFRESH_ML=$DEFAULT_REFRESH_ML
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -n|--nodes) NUM_NODES="$2"; shift ;;
+        -d|--density) DENSITY_FACTOR="$2"; shift ;;
+        -s|--seed) GRAPH_SEED="$2"; shift ;;
+        -r|--refresh-ml) REFRESH_ML=true ;;
+        -h|--help) show_help ;;
+        *) echo "Unknown parameter passed: $1"; show_help; exit 1 ;;
+    esac
+    shift
+done
 
 echo ">>> Starting Full Simulation Setup and Orchestration <<<"
+echo "Parameters to be used:"
+echo "  Graph Nodes: $NUM_NODES"
+echo "  Graph Density Factor: $DENSITY_FACTOR"
+echo "  Graph Seed: $GRAPH_SEED"
+echo "  Refresh ML Data & Models: $REFRESH_ML"
 
-# 1. Clean and Delete Previous Lab
-echo -e "\n>>> Step 1: Cleaning and deleting previous lab environment..."
+# 1. Clean and Delete Previous Lab & Optionally ML Data
+echo -e "\n>>> Step 1: Cleaning environment..."
 if [ -d "lab" ]; then
     cd lab && sudo kathara lclean && cd .. > /dev/null 2>&1
 else
@@ -37,51 +82,60 @@ else
 fi
 sudo rm -rf lab
 sudo rm -rf "$SNIPPET_DIR"
-# To preserve ML data across full bash.sh runs, ML_TRAINING_DATA_FILE is NOT deleted here.
-# sudo rm -f "$ML_TRAINING_DATA_FILE"
 sudo rm -f "$GRAPH_DATA_FILE" "$LIGHT_SENSOR_MAP_FILE" "$CLUSTER_MAP_FILE"
-echo "Previous lab environment artifacts cleaned."
 
-# 2. Generate Configs, Snippets, Maps, and ML Training Data
-echo -e "\n>>> Step 2: Running automation.py to generate configs, ML data, and perform initial ML predictions..."
-AUTOMATION_OUTPUT=$(sudo $PYTHON_EXECUTABLE automation.py | tee /dev/tty)
+if [ "$REFRESH_ML" = true ]; then
+    echo "Refreshing ML data: Deleting training data and saved models..."
+    sudo rm -f "$ML_TRAINING_DATA_FILE" "$ML_PREPROCESSOR_FILE" "$ML_RELIABILITY_MODEL_FILE" "$ML_NOISY_MODEL_FILE"
+else
+    echo "Preserving existing ML training data and models (if any)."
+fi
+echo "Environment cleaning complete."
+
+# 2. Generate Configs, Snippets, Maps, and ML Training Data via automation.py
+echo -e "\n>>> Step 2: Running automation.py..."
+AUTOMATION_CMD="sudo $PYTHON_EXECUTABLE automation.py \
+    --nodes $NUM_NODES \
+    --density $DENSITY_FACTOR \
+    --seed $GRAPH_SEED"
+
+echo "Executing: $AUTOMATION_CMD"
+AUTOMATION_OUTPUT=$($AUTOMATION_CMD | tee /dev/tty)
 AUTOMATION_EXIT_CODE=${PIPESTATUS[0]}
+
 if [ $AUTOMATION_EXIT_CODE -ne 0 ]; then
     echo "[ERROR] automation.py failed with exit code $AUTOMATION_EXIT_CODE." >&2
     exit 1
 fi
-NUM_ROUTERS=$(echo "$AUTOMATION_OUTPUT" | grep '^ROUTERS_GENERATED=' | cut -d'=' -f2)
-if ! [[ "$NUM_ROUTERS" =~ ^[0-9]+$ ]]; then
-    echo "[ERROR] Bad router count from automation.py: '$NUM_ROUTERS'. Defaulting to 0 for safety." >&2
-    NUM_ROUTERS=0
+NUM_ROUTERS_OR_CLUSTERS=$(echo "$AUTOMATION_OUTPUT" | grep '^ROUTERS_GENERATED=' | cut -d'=' -f2)
+if ! [[ "$NUM_ROUTERS_OR_CLUSTERS" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] Bad ROUTERS_GENERATED count from automation.py: '$NUM_ROUTERS_OR_CLUSTERS'. Defaulting to 0." >&2
+    NUM_ROUTERS_OR_CLUSTERS=0
 fi
-echo "--- Detected $NUM_ROUTERS routers (or clusters) by automation.py ---"
-echo "Configuration, initial ML prediction (if models available), and ML data logging by automation.py complete."
+echo "--- Detected $NUM_ROUTERS_OR_CLUSTERS sensor clusters/routers by automation.py ---"
+echo "automation.py execution complete."
 
 # 3. Train/Retrain ML Model using accumulated data
 echo -e "\n>>> Step 3: Training/Retraining ML Model..."
 if [ -f "train_ml_model.py" ]; then
-    echo "Executing ML training script with sudo to ensure write permissions for model files..."
-    sudo $PYTHON_EXECUTABLE train_ml_model.py # Ensure this can write .joblib files
+    echo "Executing ML training script (with sudo for file writing)..."
+    sudo $PYTHON_EXECUTABLE train_ml_model.py
     TRAIN_ML_EXIT_CODE=$?
     if [ $TRAIN_ML_EXIT_CODE -ne 0 ]; then
         echo "[WARNING] train_ml_model.py encountered an issue (exit code $TRAIN_ML_EXIT_CODE). Check logs above."
-        echo "[WARNING] Subsequent lab runs might use older or no ML models for initial assessment."
     else
         echo "ML Model training/retraining attempt complete."
-        # Verify models were created
-        if [ -f "ml_preprocessor.joblib" ] && [ -f "inherent_reliability_model.joblib" ] && [ -f "configured_noisy_model.joblib" ]; then
+        if [ -f "$ML_PREPROCESSOR_FILE" ] && [ -f "$ML_RELIABILITY_MODEL_FILE" ] && [ -f "$ML_NOISY_MODEL_FILE" ]; then
             echo "ML model files (.joblib) successfully created/updated."
         else
-            echo "[WARNING] One or more .joblib model files were NOT created after training."
+            echo "[WARNING] One or more .joblib model files were NOT created/updated after training."
         fi
     fi
 else
     echo "[WARNING] train_ml_model.py not found. Skipping ML model training step."
-    echo "[WARNING] Initial sensor assessments will rely on fallbacks defined in automation.py."
 fi
 
-# 4. Process lab.confu using Tacata to generate Kathara lab files
+# 4. Process lab.confu using Tacata
 echo -e "\n>>> Step 4: Running tacata.py to compile Kathara lab from lab.confu..."
 sudo $PYTHON_EXECUTABLE tacata.py -f -v
 TACATA_EXIT_CODE=$?
@@ -95,15 +149,22 @@ echo "Tacata processing complete. Kathara lab files generated."
 echo -e "\n>>> Step 5: Moving data files to lab/shared Kathara directory..."
 SHARED_DIR="lab/shared"
 sudo mkdir -p "$SHARED_DIR"
-if [ -f "$GRAPH_DATA_FILE" ]; then sudo mv "$GRAPH_DATA_FILE" "$SHARED_DIR/" || echo "[WARN] Failed to move $GRAPH_DATA_FILE."; else echo "[INFO] $GRAPH_DATA_FILE not found."; fi
-if [ -f "$LIGHT_SENSOR_MAP_FILE" ]; then sudo mv "$LIGHT_SENSOR_MAP_FILE" "$SHARED_DIR/" || echo "[WARN] Failed to move $LIGHT_SENSOR_MAP_FILE."; else echo "[INFO] $LIGHT_SENSOR_MAP_FILE not found."; fi
-if [ -f "$CLUSTER_MAP_FILE" ]; then sudo mv "$CLUSTER_MAP_FILE" "$SHARED_DIR/" || echo "[WARN] Failed to move $CLUSTER_MAP_FILE."; else echo "[INFO] $CLUSTER_MAP_FILE not found."; fi
+move_if_exists() {
+    if [ -f "$1" ]; then
+        sudo mv "$1" "$2" || echo "[WARN] Failed to move $1 to $2."
+    else
+        echo "[INFO] File $1 not found (already moved or not generated)."
+    fi
+}
+move_if_exists "$GRAPH_DATA_FILE" "$SHARED_DIR/"
+move_if_exists "$LIGHT_SENSOR_MAP_FILE" "$SHARED_DIR/"
+move_if_exists "$CLUSTER_MAP_FILE" "$SHARED_DIR/"
 echo "Data files moved to lab/shared."
 
-# 6. Configure Routers (FRR Setup) - Enhanced for Debugging Config File Content
+# 6. Configure Routers (FRR Setup)
 echo -e "\n>>> Step 6: Configuring routers with FRR..."
-if [[ "$NUM_ROUTERS" -gt 0 ]]; then
-    for i in $(seq 1 $NUM_ROUTERS); do
+if [[ "$NUM_ROUTERS_OR_CLUSTERS" -gt 0 ]]; then
+    for i in $(seq 1 $NUM_ROUTERS_OR_CLUSTERS); do
         ROUTER_STARTUP_FILE="lab/router${i}.startup"
         ROUTER_NAME="router${i}"
         LAN_SUBNET="10.${i}.1.0/24"
@@ -126,9 +187,7 @@ ripd=yes
 zebra_options="  --daemon -A 127.0.0.1 -f /etc/frr/zebra.conf"
 ripd_options="   --daemon -A 127.0.0.1 -f /etc/frr/ripd.conf"
 EOL_DAEMONS
-echo "Content of /etc/frr/daemons for $ROUTER_NAME:"
-cat /etc/frr/daemons
-echo "-------------------------------------"
+echo "Content of /etc/frr/daemons for $ROUTER_NAME:"; cat /etc/frr/daemons; echo "---"
 
 echo "Creating /etc/frr/zebra.conf for $ROUTER_NAME..."
 cat << EOL_ZEBRA > /etc/frr/zebra.conf
@@ -149,9 +208,7 @@ interface lo
 line vty
 !
 EOL_ZEBRA
-echo "Content of /etc/frr/zebra.conf for $ROUTER_NAME:"
-cat /etc/frr/zebra.conf
-echo "-------------------------------------"
+echo "Content of /etc/frr/zebra.conf for $ROUTER_NAME:"; cat /etc/frr/zebra.conf; echo "---"
 
 echo "Creating /etc/frr/ripd.conf for $ROUTER_NAME..."
 cat << EOL_RIPD > /etc/frr/ripd.conf
@@ -170,54 +227,38 @@ log file /var/log/frr/ripd.log debugging
 line vty
 !
 EOL_RIPD
-echo "Content of /etc/frr/ripd.conf for $ROUTER_NAME:"
-cat /etc/frr/ripd.conf
-echo "-------------------------------------"
+echo "Content of /etc/frr/ripd.conf for $ROUTER_NAME:"; cat /etc/frr/ripd.conf; echo "---"
 
-echo "Setting permissions for FRR config files on $ROUTER_NAME..."
-chown frr:frr /etc/frr/*.conf
-chmod 640 /etc/frr/*.conf
-
+chown frr:frr /etc/frr/*.conf; chmod 640 /etc/frr/*.conf
 echo "Attempting to enable IP forwarding on $ROUTER_NAME..."
-if echo 1 > /proc/sys/net/ipv4/ip_forward; then
-    echo "IP forwarding enabled via /proc on $ROUTER_NAME."
-else
-    echo "WARNING: Failed to enable IP forwarding via /proc on $ROUTER_NAME. Check container privileges."
-fi
-echo "Current IP forwarding status on $ROUTER_NAME: \$(cat /proc/sys/net/ipv4/ip_forward)"
-
+if echo 1 > /proc/sys/net/ipv4/ip_forward; then echo "IP forwarding enabled via /proc."; else echo "WARNING: Failed to enable IP forwarding via /proc."; fi
+echo "Current IP forwarding status: \$(cat /proc/sys/net/ipv4/ip_forward)"
 if [ -x /usr/lib/frr/frrinit.sh ]; then
-    echo "Starting FRR service on $ROUTER_NAME (frrinit.sh)..."
-    /usr/lib/frr/frrinit.sh start
-    sleep 3
-    echo "FRR startup initiated for $ROUTER_NAME. Checking processes..."
-    ps aux | grep -E 'frr|zebra|ripd' || echo "No FRR processes found with ps on $ROUTER_NAME."
-    echo "Checking FRR log directory contents for $ROUTER_NAME..."
-    ls -la /var/log/frr/
-    echo "Attempting vtysh commands on $ROUTER_NAME..."
-    vtysh -c "show version" || echo "vtysh 'show version' failed on $ROUTER_NAME."
-    vtysh -c "show ip rip status" || echo "vtysh 'show ip rip status' failed on $ROUTER_NAME."
-    vtysh -c "show ip route" || echo "vtysh 'show ip route' failed on $ROUTER_NAME."
+    echo "Starting FRR service on $ROUTER_NAME..."
+    /usr/lib/frr/frrinit.sh start; sleep 3
+    echo "FRR processes for $ROUTER_NAME:"; ps aux | grep -E 'frr|zebra|ripd' || echo "No FRR processes."
+    echo "FRR logs for $ROUTER_NAME:"; ls -la /var/log/frr/
+    vtysh -c "show version" || echo "vtysh 'show version' failed."
 else
-    echo "[ERROR] FRR init script /usr/lib/frr/frrinit.sh not found or not executable on $ROUTER_NAME." >&2
+    echo "[ERROR] FRR init script not found on $ROUTER_NAME." >&2
 fi
 EOF
             sudo sh -c "cat '$TMP_CMDS' >> '$ROUTER_STARTUP_FILE'"
             rm "$TMP_CMDS"
         else
-            echo "[WARN] Startup file not found for $ROUTER_NAME: $ROUTER_STARTUP_FILE. Cannot configure FRR."
+            echo "[WARN] Startup file not found for $ROUTER_NAME."
         fi
     done
 else
-    echo "No routers to configure (NUM_ROUTERS=$NUM_ROUTERS)."
+    echo "No routers to configure (NUM_ROUTERS_OR_CLUSTERS=$NUM_ROUTERS_OR_CLUSTERS)."
 fi
 echo "Router FRR configuration process attempted."
 
 # 7. Configure Clients AND Traffic Lights from Snippets
-echo -e "\n>>> Step 7: Configuring clients/lights using command snippets from $SNIPPET_DIR..."
+echo -e "\n>>> Step 7: Configuring clients/lights using command snippets..."
 CMD_FILES_FOUND=$(find "$SNIPPET_DIR" -maxdepth 1 -name '*.cmds' -print)
 if [ -z "$CMD_FILES_FOUND" ]; then
-    echo "[INFO] No *.cmds files found in $SNIPPET_DIR to append to startup scripts."
+    echo "[INFO] No *.cmds files found in $SNIPPET_DIR."
 else
     for CMD_FILE in $CMD_FILES_FOUND; do
         MACHINE_NAME=$(basename "$CMD_FILE" .cmds)
@@ -225,35 +266,24 @@ else
         if [ -f "$TARGET_STARTUP_FILE" ]; then
             echo "Appending $CMD_FILE to $TARGET_STARTUP_FILE..."
             sudo sh -c "cat '$CMD_FILE' >> '$TARGET_STARTUP_FILE'"
-            if [ $? -ne 0 ]; then
-                echo "[ERROR] Failed appending '$CMD_FILE' to '$TARGET_STARTUP_FILE'."
-            fi
-        else
-            echo "[WARN] Target startup file not found for snippet '$CMD_FILE': $TARGET_STARTUP_FILE."
-        fi
+            if [ $? -ne 0 ]; then echo "[ERROR] Failed appending '$CMD_FILE'."; fi
+        else echo "[WARN] Target startup file not found for '$CMD_FILE': $TARGET_STARTUP_FILE."; fi
     done
 fi
 echo "Client/Light configuration from snippets attempted."
 
 # 8. Start Lab
 echo -e "\n>>> Step 8: Starting Kathara lab..."
-if [ ! -d "lab" ]; then
-    echo "[ERROR] 'lab' directory not found. tacata.py might have failed to create it." >&2
-    exit 1
-fi
+if [ ! -d "lab" ]; then echo "[ERROR] 'lab' directory not found." >&2; exit 1; fi
 cd lab || { echo "[ERROR] Failed to cd into 'lab' directory." >&2; exit 1; }
-
 echo "Running 'sudo kathara lstart --noterminals'..."
 sudo kathara lstart --noterminals
 KATHARA_LSTART_EXIT_CODE=$?
 if [ $KATHARA_LSTART_EXIT_CODE -ne 0 ]; then
     echo "[ERROR] 'kathara lstart' failed with exit code $KATHARA_LSTART_EXIT_CODE." >&2
-    cd ..
-    exit 1
+    cd ..; exit 1
 fi
 cd ..
-
-# --- Final Message ---
 echo -e "\n----------------------------------------------------"
 echo "Kathara lab setup and ML training orchestrated."
 echo "Lab should be running."

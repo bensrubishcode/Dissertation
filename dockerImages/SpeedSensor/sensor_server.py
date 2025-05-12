@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# No leading spaces or tabs before this line or any other
 import time
 import requests
 import json
@@ -9,216 +8,263 @@ import socket
 import random
 
 # --- Configuration ---
-CENTRAL_SERVER_URL = "http://192.168.254.200:5000"
+TRAFFIC_SERVER_IP_FILE = "/etc/traffic_server_ip"
 CLUSTER_ID_FILE = "/etc/cluster_id"
-EDGE_INFO_FILE = "/etc/edge_info" # For edge string
-SENSOR_PROFILE_FILE = "/etc/sensor_profile" # Contains Manufacturer, SW Version, etc.
-SENSOR_BEHAVIOR_CONFIG_FILE = "/etc/sensor_config" # Contains MAKE_NOISY flag
+EDGE_INFO_FILE = "/etc/edge_info"
+SENSOR_PROFILE_FILE = "/etc/sensor_profile"
+SENSOR_BEHAVIOR_CONFIG_FILE = "/etc/sensor_config" # For MAKE_NOISY flag
 
 QUERY_INTERVAL_SECONDS = 5.0
 REQUEST_TIMEOUT_SECONDS = 3.0
 LISTEN_PORT = 5001
 LISTEN_HOST = '0.0.0.0'
-# NOISE_MAGNITUDE is now context-dependent if we re-introduce levels.
-# For binary noise, it can still be used if MAKE_NOISY is true.
-DEFAULT_NOISE_MAGNITUDE = 5 # Example magnitude if MAKE_NOISY is true
-
-CONFIG_WAIT_TIMEOUT_SECONDS = 30
+CENTRAL_SERVER_PORT = 5000 # Port the central server listens on
+DEFAULT_NOISE_MAGNITUDE = 5
+CONFIG_WAIT_TIMEOUT_SECONDS = 35
 CONFIG_CHECK_INTERVAL_SECONDS = 0.5
 SOCKET_BIND_RETRY_DELAY = 1.0
 SOCKET_BIND_MAX_ATTEMPTS = 10
+INITIAL_SERVER_QUERY_DELAY_SECONDS = 5
+
+# NEW: Configuration for noisy sensor false priority reporting
+NOISY_SENSOR_FALSE_PRIORITY_CHANCE = 0.05 # 5% chance for a noisy sensor to falsely report priority
 
 # --- Global State ---
 state_lock = threading.Lock()
 my_cluster_id = None
-my_edge_str = "unknown"
-
-# Sensor's static profile (loaded from file)
-sensor_static_profile = {
-    "manufacturer": "Unknown",
-    "software_version": "Unknown",
-    "is_signed": "false", # Store as string initially
-    "software_age_years": "0.0",
-    "device_age_years": "0.0"
+my_edge_str = "unknown" # For logging, not directly used in logic beyond that
+central_server_ip_address = None
+central_server_url_global = None
+sensor_static_profile = { # Loaded for completeness, not used in current logic beyond logging
+    "manufacturer": "Unknown", "software_version": "Unknown",
+    "is_signed": "false", "software_age_years": "0.0", "device_age_years": "0.0"
 }
-
-# Behavior flags
-is_configured_noisy_this_run = False # Based on MAKE_NOISY from sensor_config
-# The 'is_noisy' flag used in handle_light_connection will be directly this value
-
-current_ground_truth_traffic = 0
+is_configured_noisy_this_run = False # From SENSOR_BEHAVIOR_CONFIG_FILE
+current_ground_truth_traffic = 0 # From central server
+current_priority_on_edge = False # NEW: From central server
 last_query_success = False
-last_query_time = 0
+last_query_time = 0 # Epoch time of the last query attempt
 
 # --- Functions ---
 
+def load_central_server_ip_from_file():
+    global central_server_ip_address, central_server_url_global
+    log_cid = "Pre-ID-Load"
+    with state_lock: 
+        if my_cluster_id is not None: log_cid = my_cluster_id
+            
+    if not os.path.exists(TRAFFIC_SERVER_IP_FILE):
+        print(f"Sensor Info (Cluster {log_cid}): {TRAFFIC_SERVER_IP_FILE} not found.")
+        return False
+    try:
+        with open(TRAFFIC_SERVER_IP_FILE, 'r') as f:
+            ip = f.readline().strip()
+            if ip:
+                central_server_ip_address = ip
+                central_server_url_global = f"http://{central_server_ip_address}:{CENTRAL_SERVER_PORT}"
+                print(f"Sensor Info (Cluster {log_cid}): Central Server URL configured to {central_server_url_global}")
+                return True
+            else:
+                print(f"Sensor Error (Cluster {log_cid}): {TRAFFIC_SERVER_IP_FILE} is empty.")
+                return False
+    except Exception as e:
+        print(f"Sensor Error (Cluster {log_cid}): reading {TRAFFIC_SERVER_IP_FILE}: {e}")
+        return False
+
 def parse_config_file_to_dict(filepath):
-    """Parses a key=value file into a dictionary."""
     config_dict = {}
     if os.path.exists(filepath):
         try:
             with open(filepath, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    if '=' in line and not line.startswith('#'):
+                    if '=' in line and not line.startswith('#'): # Ensure not a comment
                         key, value = line.split('=', 1)
                         config_dict[key.strip().upper()] = value.strip()
         except Exception as e:
             print(f"Warning: Error reading or parsing config file {filepath}: {e}")
     return config_dict
 
-def load_config():
-    """Loads cluster ID, edge info, static profile, and MAKE_NOISY status."""
+def load_sensor_specific_config():
     global my_cluster_id, my_edge_str, sensor_static_profile, is_configured_noisy_this_run
-    
     cluster_id_read = None
-    edge_read = None
+    edge_read = None # From EDGE_INFO_FILE
     essential_config_ok = False
 
-    # Load Cluster ID (essential)
     if os.path.exists(CLUSTER_ID_FILE):
         try:
-            with open(CLUSTER_ID_FILE, 'r') as f:
-                cluster_id_read = int(f.readline().strip())
-            essential_config_ok = True # Cluster ID is most essential for operation
-        except Exception as e:
-            print(f"Error reading {CLUSTER_ID_FILE}: {e}")
-            essential_config_ok = False
-    else:
-        print(f"Error: {CLUSTER_ID_FILE} not found.")
-        essential_config_ok = False
+            with open(CLUSTER_ID_FILE, 'r') as f: cluster_id_read = int(f.readline().strip())
+            essential_config_ok = True # Cluster ID is essential
+        except Exception as e: print(f"Sensor Error: reading {CLUSTER_ID_FILE}: {e}"); essential_config_ok = False
+    else: print(f"Sensor Error: {CLUSTER_ID_FILE} not found."); essential_config_ok = False
 
-    # Load Edge Info
+    if essential_config_ok: # Set global my_cluster_id as soon as it's read successfully
+        with state_lock: my_cluster_id = cluster_id_read
+    
+    current_cid_log = "Unknown" 
+    if my_cluster_id is not None: current_cid_log = my_cluster_id
+
     if os.path.exists(EDGE_INFO_FILE):
         edge_config = parse_config_file_to_dict(EDGE_INFO_FILE)
-        edge_read = edge_config.get("EDGE", "unknown")
+        edge_read = edge_config.get("EDGE", "unknown_edge_default")
+    else: print(f"Sensor Info (Cluster {current_cid_log}): {EDGE_INFO_FILE} not found. Edge will be default.")
 
-    # Load Static Profile
-    if os.path.exists(SENSOR_PROFILE_FILE):
+    if os.path.exists(SENSOR_PROFILE_FILE): # Load static profile, though not used in core logic currently
         profile_data = parse_config_file_to_dict(SENSOR_PROFILE_FILE)
-        sensor_static_profile["manufacturer"] = profile_data.get("MANUFACTURER", "Unknown")
-        sensor_static_profile["software_version"] = profile_data.get("SOFTWARE_VERSION", "Unknown")
-        sensor_static_profile["is_signed"] = profile_data.get("IS_SIGNED", "false").lower()
-        sensor_static_profile["software_age_years"] = profile_data.get("SOFTWARE_AGE_YEARS", "0.0")
-        sensor_static_profile["device_age_years"] = profile_data.get("DEVICE_AGE_YEARS", "0.0")
-
-    # Load Behavior Configuration (MAKE_NOISY)
+        sensor_static_profile.update({
+            "manufacturer": profile_data.get("MANUFACTURER", "Unknown"),
+            "software_version": profile_data.get("SOFTWARE_VERSION", "Unknown"),
+            "is_signed": profile_data.get("IS_SIGNED", "false").lower(),
+            "software_age_years": profile_data.get("SOFTWARE_AGE_YEARS", "0.0"),
+            "device_age_years": profile_data.get("DEVICE_AGE_YEARS", "0.0")
+        })
+    else: print(f"Sensor Info (Cluster {current_cid_log}): {SENSOR_PROFILE_FILE} not found. Profile will be defaults.")
+        
     make_noisy_behavior = False # Default to not noisy
     if os.path.exists(SENSOR_BEHAVIOR_CONFIG_FILE):
         behavior_config = parse_config_file_to_dict(SENSOR_BEHAVIOR_CONFIG_FILE)
-        if behavior_config.get("MAKE_NOISY", "false").lower() == "true":
-            make_noisy_behavior = True
+        if behavior_config.get("MAKE_NOISY", "false").lower() == "true": make_noisy_behavior = True
+    else: print(f"Sensor Info (Cluster {current_cid_log}): {SENSOR_BEHAVIOR_CONFIG_FILE} not found. MAKE_NOISY defaults to false.")
             
-    with state_lock:
-        my_cluster_id = cluster_id_read
-        my_edge_str = edge_read if edge_read else "unknown"
+    with state_lock: # Update other globals under lock
+        my_edge_str = edge_read if edge_read else "unknown_edge_default"
         is_configured_noisy_this_run = make_noisy_behavior
-        
-        if essential_config_ok:
+        if essential_config_ok: 
             print(f"Sensor Config Loaded for Cluster ID: {my_cluster_id}")
-            print(f"  Edge: {my_edge_str}")
-            print(f"  Static Profile: {sensor_static_profile}")
-            print(f"  Behavior Config - MAKE_NOISY: {is_configured_noisy_this_run}")
-        else:
-            print("Error: Essential configuration (Cluster ID) could not be loaded.")
-
+            print(f"  Edge: {my_edge_str}, MAKE_NOISY (for traffic count): {is_configured_noisy_this_run}")
     return essential_config_ok
 
 
 def query_central_server_loop():
-    """Periodically queries the central server for ground truth traffic."""
-    global current_ground_truth_traffic, last_query_success, last_query_time
-    while True:
+    global current_ground_truth_traffic, current_priority_on_edge, last_query_success, last_query_time
+    
+    initial_delay_done = False
+    while True: 
         current_id_for_query = None
+        current_server_url = None
         with state_lock:
-            current_id_for_query = my_cluster_id # Use a local var to minimize lock time
-        
-        if current_id_for_query is None:
-            # print("Sensor Info: No Cluster ID yet, skipping central query.") # Can be verbose
+            current_id_for_query = my_cluster_id
+            current_server_url = central_server_url_global
+
+        if not (current_id_for_query is not None and current_server_url is not None):
+            print(f"Sensor Info (Cluster {current_id_for_query if current_id_for_query else 'Unknown'}): Waiting for full config before starting query loop...")
             time.sleep(QUERY_INTERVAL_SECONDS)
-            # load_config() # Optionally try to reload config if ID is missing, but load_config is called in main init loop
             continue
 
-        target_url = f"{CENTRAL_SERVER_URL}/traffic/{current_id_for_query}"
-        success_flag_this_cycle = False
-        new_traffic_value_this_cycle = 0
-        try:
-            response = requests.get(target_url, timeout=REQUEST_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            data = response.json()
-            traffic_val = data.get('current_traffic_count')
-            if isinstance(traffic_val, int):
-                new_traffic_value_this_cycle = traffic_val
-                success_flag_this_cycle = True
-            else:
-                print(f"Warning Sensor {current_id_for_query}: Invalid traffic count type from server: {type(traffic_val)}")
-        except requests.exceptions.RequestException as e:
-            print(f"Warning Sensor {current_id_for_query}: Central query failed: {e}")
-        except json.JSONDecodeError:
-            print(f"Warning Sensor {current_id_for_query}: Failed to decode JSON response from server.")
-        
-        with state_lock:
-            last_query_success = success_flag_this_cycle
-            if success_flag_this_cycle:
-                current_ground_truth_traffic = new_traffic_value_this_cycle
+        if not initial_delay_done:
+            print(f"Sensor Info (Cluster {current_id_for_query}): Initial delay of {INITIAL_SERVER_QUERY_DELAY_SECONDS}s before first central server query...")
+            time.sleep(INITIAL_SERVER_QUERY_DELAY_SECONDS)
+            initial_delay_done = True
+
+        while True: 
+            with state_lock: 
+                current_id_for_query_inner = my_cluster_id
+                current_server_url_inner = central_server_url_global
+            
+            if not (current_id_for_query_inner is not None and current_server_url_inner is not None):
+                print(f"Sensor Info: Configs became unavailable during query loop. Restarting wait.")
+                initial_delay_done = False 
+                break 
+
+            target_url = f"{current_server_url_inner}/traffic/{current_id_for_query_inner}"
+            success_flag_this_cycle = False
+            new_traffic_value_this_cycle = 0
+            new_priority_value_this_cycle = False # NEW: Default priority to false
+            try:
+                response = requests.get(target_url, timeout=REQUEST_TIMEOUT_SECONDS)
+                response.raise_for_status()
+                data = response.json()
+                traffic_val = data.get('current_traffic_count')
+                priority_val = data.get('priority_detected', False) # NEW: Get priority status
+
+                if isinstance(traffic_val, int):
+                    new_traffic_value_this_cycle = traffic_val
+                    # Only consider priority valid if traffic is also valid
+                    if isinstance(priority_val, bool):
+                        new_priority_value_this_cycle = priority_val
+                    else:
+                        print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Invalid priority_detected type from {target_url}: {type(priority_val)}")
+                    success_flag_this_cycle = True
+                else:
+                    print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Invalid traffic count type from {target_url}: {type(traffic_val)}")
+            
+            except requests.exceptions.Timeout:
+                print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Central query to {target_url} timed out (timeout={REQUEST_TIMEOUT_SECONDS}s).")
+            except requests.exceptions.ConnectionError as e:
+                print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Central query to {target_url} connection failed. Error: {e}")
+            except requests.exceptions.RequestException as e:
+                print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Central query to {target_url} request failed: {e}")
+            except json.JSONDecodeError:
+                print(f"Warning Sensor (Cluster {current_id_for_query_inner}): Failed to decode JSON response from {target_url}.")
+            
+            with state_lock:
+                last_query_success = success_flag_this_cycle
+                if success_flag_this_cycle:
+                    current_ground_truth_traffic = new_traffic_value_this_cycle
+                    current_priority_on_edge = new_priority_value_this_cycle # NEW: Update global priority
+                else: # If query failed, reset to safe defaults
+                    current_ground_truth_traffic = 0 
+                    current_priority_on_edge = False
                 last_query_time = time.time()
-            # else: current_ground_truth_traffic remains as is, last_query_success is False
-        
-        time.sleep(QUERY_INTERVAL_SECONDS)
+            
+            time.sleep(QUERY_INTERVAL_SECONDS)
+
 
 def handle_light_connection(conn, addr):
-    """Handles an incoming connection from a traffic light."""
-    # Grab necessary state under lock once
+    # Safely get current state for this connection handler
     with state_lock:
         sensor_id_for_log = my_cluster_id if my_cluster_id is not None else "UNKNOWN_ID"
         query_was_successful = last_query_success
         traffic_from_central = current_ground_truth_traffic
-        # THIS SENSOR'S BEHAVIOR IS DETERMINED BY is_configured_noisy_this_run
-        act_noisy_this_time = is_configured_noisy_this_run
-
-    print(f"Sensor {sensor_id_for_log}: Connection accepted from {addr}")
+        actual_priority_from_central = current_priority_on_edge # NEW: Get actual priority
+        act_noisy_traffic_this_time = is_configured_noisy_this_run # For traffic count noise
+    
     try:
-        conn.settimeout(5.0)
+        conn.settimeout(5.0) # Timeout for this specific connection
         request = conn.recv(1024).decode('utf-8').strip()
-        print(f"Sensor {sensor_id_for_log}: Received request: '{request}' from {addr}")
 
         if request == "GET_TRAFFIC":
-            traffic_to_report = -1 # Default to error
+            traffic_to_report = -1 
+            priority_to_report = False # Default priority to report
 
             if query_was_successful:
                 traffic_to_report = traffic_from_central
-                if act_noisy_this_time:
-                    # Apply simple noise if configured to be noisy
+                if act_noisy_traffic_this_time: # Apply noise to traffic count if sensor is noisy
                     noise = random.randint(-DEFAULT_NOISE_MAGNITUDE, DEFAULT_NOISE_MAGNITUDE)
-                    reported_value_with_noise = max(0, traffic_to_report + noise)
-                    print(f"DEBUG Sensor {sensor_id_for_log}: NOISY MODE. Truth: {traffic_to_report}, Reported: {reported_value_with_noise} (Noise: {noise})")
-                    traffic_to_report = reported_value_with_noise
-                # else:
-                #     print(f"DEBUG Sensor {sensor_id_for_log}: Normal mode. Truth: {traffic_to_report}, Reported: {traffic_to_report}")
+                    traffic_to_report = max(0, traffic_to_report + noise)
+                
+                # Determine priority to report
+                priority_to_report = actual_priority_from_central # Start with actual priority
+                
+                # NEW: Noisy sensor false priority reporting logic
+                if act_noisy_traffic_this_time and not actual_priority_from_central: # If sensor is noisy AND no actual priority
+                    if random.random() < NOISY_SENSOR_FALSE_PRIORITY_CHANCE:
+                        priority_to_report = True # Falsely report priority
+                        # print(f"Sensor {sensor_id_for_log}: Noisy sensor Falsely reporting PRIORITY=true (Actual was false)") # Optional: for debugging
+            else:
+                # If query to central server failed, report error traffic and no priority
+                print(f"Sensor {sensor_id_for_log}: Last central query failed. Reporting error value (-1) and PRIORITY=false to {addr}.")
+                traffic_to_report = -1
+                priority_to_report = False # Ensure priority is false on query failure
 
-            else: # Last query to central server failed
-                print(f"Sensor {sensor_id_for_log}: Last central query failed. Reporting error value.")
-                traffic_to_report = -1 # Explicitly error
-
-            response_str = f"TRAFFIC={traffic_to_report}\n"
+            # Format response string with both traffic and priority
+            response_str = f"TRAFFIC={traffic_to_report};PRIORITY={str(priority_to_report).lower()}\n"
             conn.sendall(response_str.encode('utf-8'))
-            print(f"Sensor {sensor_id_for_log}: Sent response: '{response_str.strip()}' to {addr}")
         else:
             print(f"Sensor {sensor_id_for_log}: Unknown request from {addr}: {request}")
-            conn.sendall(b"ERROR=UnknownRequest\n")
+            conn.sendall(b"ERROR=UnknownRequest\n") # Keep simple error for unknown
 
-    except socket.timeout:
-        print(f"Sensor {sensor_id_for_log}: Socket timeout with {addr}")
-    except Exception as e:
-        print(f"Sensor {sensor_id_for_log}: Error handling connection from {addr}: {e}")
-    finally:
-        conn.close()
+    except socket.timeout: print(f"Sensor {sensor_id_for_log}: Socket timeout with {addr}")
+    except Exception as e: print(f"Sensor {sensor_id_for_log}: Error handling connection from {addr}: {e}")
+    finally: conn.close()
 
 def start_socket_server():
-    """Starts the TCP socket server, retrying bind if necessary."""
     server_socket = None
     bind_success = False
-    sensor_id_for_log_init = my_cluster_id if my_cluster_id is not None else "UNINITIALIZED"
+    
+    log_cid_socket = "UNINITIALIZED_SOCKET" 
+    with state_lock: 
+        if my_cluster_id is not None: log_cid_socket = my_cluster_id
 
     for attempt in range(SOCKET_BIND_MAX_ATTEMPTS):
         try:
@@ -226,71 +272,106 @@ def start_socket_server():
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((LISTEN_HOST, LISTEN_PORT))
             bind_success = True
-            print(f"Sensor {sensor_id_for_log_init}: Socket bound successfully on attempt {attempt + 1}.")
+            print(f"Sensor (Cluster {log_cid_socket}): Socket bound successfully on attempt {attempt + 1}.")
             break
         except OSError as e:
-            print(f"Warning Sensor {sensor_id_for_log_init}: Socket bind attempt {attempt + 1}/{SOCKET_BIND_MAX_ATTEMPTS} failed: {e}")
-            if server_socket: server_socket.close()
+            with state_lock: 
+                if my_cluster_id is not None: log_cid_socket = my_cluster_id
+            print(f"Warning Sensor (Cluster {log_cid_socket}): Socket bind attempt {attempt + 1}/{SOCKET_BIND_MAX_ATTEMPTS} failed: {e}")
+            if server_socket: server_socket.close() 
+            server_socket = None 
             if attempt < SOCKET_BIND_MAX_ATTEMPTS - 1:
-                print(f"Retrying in {SOCKET_BIND_RETRY_DELAY} seconds...")
                 time.sleep(SOCKET_BIND_RETRY_DELAY)
             else:
-                print(f"FATAL Sensor {sensor_id_for_log_init}: Max bind attempts reached. Server cannot start.")
-                return
-
-    if not bind_success or server_socket is None:
-        return
+                print(f"FATAL Sensor (Cluster {log_cid_socket}): Max bind attempts reached. Server cannot start.")
+                return 
+    
+    if not bind_success or server_socket is None: 
+        return # Exit if cannot bind
 
     try:
-        server_socket.listen(5)
-        print(f"Sensor {sensor_id_for_log_init}: Socket server listening on {LISTEN_HOST}:{LISTEN_PORT}")
-        while True:
+        server_socket.listen(5) # Listen for incoming connections
+        with state_lock: 
+                if my_cluster_id is not None: log_cid_socket = my_cluster_id
+        print(f"Sensor (Cluster {log_cid_socket}): Socket server listening on {LISTEN_HOST}:{LISTEN_PORT}")
+        
+        while True: # Main accept loop
             try:
                 conn, addr = server_socket.accept()
-                # Pass current cluster_id to thread for logging, in case it changes due to a bug (shouldn't)
+                # print(f"Sensor (Cluster {log_cid_socket}): Accepted connection from {addr}") # Optional: for debugging
                 handler_thread = threading.Thread(target=handle_light_connection, args=(conn, addr), daemon=True)
                 handler_thread.start()
-            except Exception as e:
-                # Update sensor_id_for_log in case it was loaded late
-                current_sensor_id_log = my_cluster_id if my_cluster_id is not None else "ACCEPT_LOOP_UNINIT"
-                print(f"Sensor {current_sensor_id_log}: Error accepting connection: {e}")
+            except Exception as e: # Catch errors in accept loop
+                log_cid_accept_err = "ACCEPT_LOOP_UNINIT"
+                with state_lock: 
+                    if my_cluster_id is not None: log_cid_accept_err = my_cluster_id
+                print(f"Sensor (Cluster {log_cid_accept_err}): Error accepting connection: {e}")
     except KeyboardInterrupt:
-        current_sensor_id_log = my_cluster_id if my_cluster_id is not None else "KBI_UNINIT"
-        print(f"Sensor {current_sensor_id_log}: Socket server received interrupt.")
+        log_cid_kbi_err = "KBI_UNINIT"
+        with state_lock:
+            if my_cluster_id is not None: log_cid_kbi_err = my_cluster_id
+        print(f"Sensor (Cluster {log_cid_kbi_err}): Socket server received interrupt. Shutting down.")
+    except Exception as e: 
+        log_cid_listen_main_err = "LISTEN_ERR_UNINIT"
+        with state_lock:
+            if my_cluster_id is not None: log_cid_listen_main_err = my_cluster_id
+        print(f"Sensor (Cluster {log_cid_listen_main_err}): Critical error in socket server listen loop: {e}")
     finally:
-        current_sensor_id_log = my_cluster_id if my_cluster_id is not None else "FINALLY_UNINIT"
-        print(f"Sensor {current_sensor_id_log}: Closing socket server.")
-        if server_socket: server_socket.close()
+        log_cid_final_close = "FINALLY_UNINIT"
+        with state_lock:
+            if my_cluster_id is not None: log_cid_final_close = my_cluster_id
+        print(f"Sensor (Cluster {log_cid_final_close}): Closing socket server.")
+        if server_socket:
+            server_socket.close()
 
-# --- Main Execution ---
 if __name__ == "__main__":
     print("--- Sensor Server Starting ---")
-
-    # Initial configuration load attempt loop
     print("Waiting for configuration files...")
     start_wait_time = time.time()
-    initial_config_loaded_successfully = False
+    sensor_specific_config_loaded = False
+    central_server_ip_config_loaded = False
+
+    # Configuration loading loop
     while time.time() - start_wait_time < CONFIG_WAIT_TIMEOUT_SECONDS:
-        if load_config(): # load_config now returns True if essential CLUSTER_ID_FILE is found and read
-            initial_config_loaded_successfully = True
+        if not sensor_specific_config_loaded:
+            sensor_specific_config_loaded = load_sensor_specific_config()
+        if not central_server_ip_config_loaded: # Try to load after sensor_specific for better logging with cluster_id
+            central_server_ip_config_loaded = load_central_server_ip_from_file()
+        
+        if sensor_specific_config_loaded and central_server_ip_config_loaded:
+            # Log with my_cluster_id which should be set if sensor_specific_config_loaded is true
+            log_cid_main_loaded = "Unknown"
+            with state_lock: # Safely access my_cluster_id
+                if my_cluster_id is not None: log_cid_main_loaded = my_cluster_id
+            print(f"Sensor Info (Cluster {log_cid_main_loaded}): All essential configurations loaded.")
             break
         time.sleep(CONFIG_CHECK_INTERVAL_SECONDS)
 
-    if not initial_config_loaded_successfully:
-        # Try one last time, perhaps files appeared very late
-        if not load_config():
-             print(f"FATAL: Essential configuration files (like {CLUSTER_ID_FILE}) not found or unreadable after {CONFIG_WAIT_TIMEOUT_SECONDS} seconds. Exiting.")
-             exit(1)
-        else:
-            print("Configuration loaded successfully on final attempt.")
+    # Check if configurations were successfully loaded
+    log_cid_fatal_check = "Unknown" # For logging before my_cluster_id might be set
+    with state_lock:
+        if my_cluster_id is not None: log_cid_fatal_check = my_cluster_id
 
+    if not sensor_specific_config_loaded:
+        print(f"FATAL Sensor (Cluster {log_cid_fatal_check}): Essential sensor-specific config not loaded after {CONFIG_WAIT_TIMEOUT_SECONDS}s. Exiting.")
+        exit(1)
+    if not central_server_ip_config_loaded:
+        print(f"FATAL Sensor (Cluster {log_cid_fatal_check}): Central Server IP config not loaded after {CONFIG_WAIT_TIMEOUT_SECONDS}s. Exiting.")
+        exit(1)
 
-    # Start the thread that periodically queries the central server
+    # Start the thread that queries the central server
     query_thread = threading.Thread(target=query_central_server_loop, daemon=True)
     query_thread.start()
-    print("Central server query thread started.")
+    log_cid_thread_start = "Unknown"
+    with state_lock:
+        if my_cluster_id is not None: log_cid_thread_start = my_cluster_id
+    print(f"Sensor Info (Cluster {log_cid_thread_start}): Central server query thread started.")
+    
+    # Start the socket server to listen for traffic light connections
+    start_socket_server() # This is a blocking call and will run until interrupted or error
 
-    # Start the socket server to listen for requests from traffic lights
-    start_socket_server() # This will block until KeyboardInterrupt or error
+    log_cid_shutdown = "Unknown"
+    with state_lock:
+        if my_cluster_id is not None: log_cid_shutdown = my_cluster_id
+    print(f"--- Sensor Server (Cluster {log_cid_shutdown}) Shutting Down ---")
 
-    print("--- Sensor Server Shutting Down ---")

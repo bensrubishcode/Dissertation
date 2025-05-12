@@ -1,0 +1,13 @@
+ifconfig eth0 10.3.1.1/24 up
+route add default gw 10.3.1.254 dev eth0
+# Sensor s_3_1 on edge 3-4
+echo "3" > /etc/cluster_id
+echo "s_3_1" > /etc/sensor_id
+echo "EDGE=3-4" > /etc/edge_info
+echo "MANUFACTURER=OkayDevices" > /etc/sensor_profile
+echo "SOFTWARE_VERSION=v2.1.0-signed" >> /etc/sensor_profile
+echo "IS_SIGNED=true" >> /etc/sensor_profile
+echo "SOFTWARE_AGE_YEARS=0.5" >> /etc/sensor_profile
+echo "DEVICE_AGE_YEARS=0.78" >> /etc/sensor_profile
+echo "MAKE_NOISY=false" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

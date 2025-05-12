@@ -1,0 +1,11 @@
+# Sensor s_6_2 on edge 2-10
+echo "6" > /etc/cluster_id
+echo "s_6_2" > /etc/sensor_id
+echo "EDGE=2-10" > /etc/edge_info
+echo "MANUFACTURER=LegacySystems" > /etc/sensor_profile
+echo "SOFTWARE_VERSION=v1.0.1-signed" >> /etc/sensor_profile
+echo "IS_SIGNED=true" >> /etc/sensor_profile
+echo "SOFTWARE_AGE_YEARS=3.5" >> /etc/sensor_profile
+echo "DEVICE_AGE_YEARS=4.84" >> /etc/sensor_profile
+echo "MAKE_NOISY=true" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

@@ -4,12 +4,6 @@
     "graph": {},
     "nodes": [
         {
-            "id": 0
-        },
-        {
-            "id": 1
-        },
-        {
             "id": 2
         },
         {
@@ -55,9 +49,6 @@
             "id": 16
         },
         {
-            "id": 17
-        },
-        {
             "id": 18
         },
         {
@@ -66,207 +57,165 @@
     ],
     "links": [
         {
-            "speed_limit": 89,
-            "capacity": 61,
-            "distance": 2.3,
-            "source": 0,
-            "target": 1
-        },
-        {
-            "speed_limit": 120,
-            "capacity": 49,
-            "distance": 2.47,
-            "source": 0,
-            "target": 3
-        },
-        {
-            "speed_limit": 107,
-            "capacity": 73,
-            "distance": 4.68,
-            "source": 0,
-            "target": 8
-        },
-        {
-            "speed_limit": 101,
-            "capacity": 28,
-            "distance": 0.69,
-            "source": 0,
-            "target": 9
-        },
-        {
-            "speed_limit": 119,
-            "capacity": 82,
-            "distance": 3.78,
-            "source": 0,
+            "speed_limit": 111,
+            "capacity": 69,
+            "distance": 1.18,
+            "source": 2,
             "target": 10
         },
         {
-            "speed_limit": 88,
-            "capacity": 55,
-            "distance": 4.6,
-            "source": 0,
-            "target": 18
-        },
-        {
-            "speed_limit": 88,
-            "capacity": 54,
-            "distance": 2.42,
-            "source": 1,
-            "target": 4
-        },
-        {
-            "speed_limit": 88,
-            "capacity": 40,
-            "distance": 2.51,
-            "source": 1,
-            "target": 13
-        },
-        {
-            "speed_limit": 114,
-            "capacity": 59,
-            "distance": 3.34,
-            "source": 1,
-            "target": 14
-        },
-        {
-            "speed_limit": 98,
-            "capacity": 47,
-            "distance": 2.55,
-            "source": 2,
-            "target": 15
-        },
-        {
             "speed_limit": 97,
-            "capacity": 94,
-            "distance": 2.69,
+            "capacity": 25,
+            "distance": 4.43,
             "source": 2,
-            "target": 18
-        },
-        {
-            "speed_limit": 91,
-            "capacity": 32,
-            "distance": 0.81,
-            "source": 4,
-            "target": 5
-        },
-        {
-            "speed_limit": 104,
-            "capacity": 64,
-            "distance": 2.29,
-            "source": 4,
             "target": 11
         },
         {
-            "speed_limit": 106,
-            "capacity": 50,
-            "distance": 4.48,
-            "source": 5,
-            "target": 8
+            "speed_limit": 118,
+            "capacity": 76,
+            "distance": 4.18,
+            "source": 2,
+            "target": 16
         },
         {
-            "speed_limit": 73,
-            "capacity": 58,
-            "distance": 4.84,
-            "source": 6,
-            "target": 10
+            "speed_limit": 115,
+            "capacity": 26,
+            "distance": 2.7,
+            "source": 2,
+            "target": 19
+        },
+        {
+            "speed_limit": 116,
+            "capacity": 44,
+            "distance": 1.41,
+            "source": 3,
+            "target": 4
+        },
+        {
+            "speed_limit": 78,
+            "capacity": 59,
+            "distance": 1.43,
+            "source": 3,
+            "target": 6
         },
         {
             "speed_limit": 100,
-            "capacity": 33,
-            "distance": 0.79,
-            "source": 6,
-            "target": 13
-        },
-        {
-            "speed_limit": 117,
-            "capacity": 96,
-            "distance": 1.02,
-            "source": 6,
-            "target": 18
-        },
-        {
-            "speed_limit": 94,
-            "capacity": 59,
-            "distance": 4.55,
-            "source": 7,
-            "target": 16
-        },
-        {
-            "speed_limit": 110,
-            "capacity": 90,
-            "distance": 4.86,
-            "source": 8,
-            "target": 12
-        },
-        {
-            "speed_limit": 109,
-            "capacity": 82,
-            "distance": 1.42,
-            "source": 8,
-            "target": 14
-        },
-        {
-            "speed_limit": 119,
-            "capacity": 32,
-            "distance": 3.96,
-            "source": 8,
-            "target": 16
+            "capacity": 29,
+            "distance": 3.71,
+            "source": 3,
+            "target": 8
         },
         {
             "speed_limit": 105,
-            "capacity": 87,
-            "distance": 2.87,
-            "source": 8,
-            "target": 18
+            "capacity": 42,
+            "distance": 0.8,
+            "source": 3,
+            "target": 13
         },
         {
-            "speed_limit": 118,
-            "capacity": 48,
-            "distance": 3.2,
-            "source": 9,
-            "target": 19
-        },
-        {
-            "speed_limit": 102,
-            "capacity": 28,
-            "distance": 2.26,
-            "source": 10,
-            "target": 18
+            "speed_limit": 104,
+            "capacity": 41,
+            "distance": 2.19,
+            "source": 3,
+            "target": 14
         },
         {
             "speed_limit": 87,
-            "capacity": 48,
-            "distance": 4.66,
+            "capacity": 83,
+            "distance": 2.43,
+            "source": 3,
+            "target": 15
+        },
+        {
+            "speed_limit": 118,
+            "capacity": 84,
+            "distance": 2.06,
+            "source": 3,
+            "target": 18
+        },
+        {
+            "speed_limit": 97,
+            "capacity": 68,
+            "distance": 0.72,
+            "source": 4,
+            "target": 8
+        },
+        {
+            "speed_limit": 105,
+            "capacity": 59,
+            "distance": 3.19,
+            "source": 4,
+            "target": 12
+        },
+        {
+            "speed_limit": 93,
+            "capacity": 81,
+            "distance": 3.65,
+            "source": 4,
+            "target": 14
+        },
+        {
+            "speed_limit": 104,
+            "capacity": 67,
+            "distance": 0.87,
+            "source": 5,
+            "target": 18
+        },
+        {
+            "speed_limit": 78,
+            "capacity": 77,
+            "distance": 4.47,
+            "source": 6,
+            "target": 8
+        },
+        {
+            "speed_limit": 113,
+            "capacity": 30,
+            "distance": 3.04,
+            "source": 6,
+            "target": 9
+        },
+        {
+            "speed_limit": 73,
+            "capacity": 76,
+            "distance": 2.3,
+            "source": 6,
+            "target": 18
+        },
+        {
+            "speed_limit": 98,
+            "capacity": 44,
+            "distance": 0.67,
+            "source": 7,
+            "target": 15
+        },
+        {
+            "speed_limit": 73,
+            "capacity": 33,
+            "distance": 3.2,
+            "source": 10,
+            "target": 11
+        },
+        {
+            "speed_limit": 91,
+            "capacity": 37,
+            "distance": 0.61,
             "source": 10,
             "target": 19
         },
         {
-            "speed_limit": 97,
-            "capacity": 44,
-            "distance": 1.71,
-            "source": 12,
-            "target": 15
+            "speed_limit": 107,
+            "capacity": 22,
+            "distance": 4.46,
+            "source": 11,
+            "target": 13
         },
         {
-            "speed_limit": 106,
-            "capacity": 71,
-            "distance": 2.24,
-            "source": 13,
-            "target": 18
-        },
-        {
-            "speed_limit": 110,
-            "capacity": 68,
-            "distance": 4.37,
+            "speed_limit": 105,
+            "capacity": 96,
+            "distance": 4.88,
             "source": 14,
-            "target": 17
-        },
-        {
-            "speed_limit": 72,
-            "capacity": 69,
-            "distance": 3.94,
-            "source": 15,
-            "target": 16
+            "target": 18
         }
     ]
 }

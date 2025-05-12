@@ -1,0 +1,13 @@
+ifconfig eth0 10.4.1.1/24 up
+route add default gw 10.4.1.254 dev eth0
+# Sensor s_4_1 on edge 11-13
+echo "4" > /etc/cluster_id
+echo "s_4_1" > /etc/sensor_id
+echo "EDGE=11-13" > /etc/edge_info
+echo "MANUFACTURER=ShadySensorsLtd" > /etc/sensor_profile
+echo "SOFTWARE_VERSION=v1.0.0" >> /etc/sensor_profile
+echo "IS_SIGNED=false" >> /etc/sensor_profile
+echo "SOFTWARE_AGE_YEARS=4.0" >> /etc/sensor_profile
+echo "DEVICE_AGE_YEARS=2.32" >> /etc/sensor_profile
+echo "MAKE_NOISY=true" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

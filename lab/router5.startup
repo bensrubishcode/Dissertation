@@ -14,9 +14,7 @@ ripd=yes
 zebra_options="  --daemon -A 127.0.0.1 -f /etc/frr/zebra.conf"
 ripd_options="   --daemon -A 127.0.0.1 -f /etc/frr/ripd.conf"
 EOL_DAEMONS
-echo "Content of /etc/frr/daemons for router5:"
-cat /etc/frr/daemons
-echo "-------------------------------------"
+echo "Content of /etc/frr/daemons for router5:"; cat /etc/frr/daemons; echo "---"
 
 echo "Creating /etc/frr/zebra.conf for router5..."
 cat << EOL_ZEBRA > /etc/frr/zebra.conf
@@ -37,9 +35,7 @@ interface lo
 line vty
 !
 EOL_ZEBRA
-echo "Content of /etc/frr/zebra.conf for router5:"
-cat /etc/frr/zebra.conf
-echo "-------------------------------------"
+echo "Content of /etc/frr/zebra.conf for router5:"; cat /etc/frr/zebra.conf; echo "---"
 
 echo "Creating /etc/frr/ripd.conf for router5..."
 cat << EOL_RIPD > /etc/frr/ripd.conf
@@ -58,34 +54,18 @@ log file /var/log/frr/ripd.log debugging
 line vty
 !
 EOL_RIPD
-echo "Content of /etc/frr/ripd.conf for router5:"
-cat /etc/frr/ripd.conf
-echo "-------------------------------------"
+echo "Content of /etc/frr/ripd.conf for router5:"; cat /etc/frr/ripd.conf; echo "---"
 
-echo "Setting permissions for FRR config files on router5..."
-chown frr:frr /etc/frr/*.conf
-chmod 640 /etc/frr/*.conf
-
+chown frr:frr /etc/frr/*.conf; chmod 640 /etc/frr/*.conf
 echo "Attempting to enable IP forwarding on router5..."
-if echo 1 > /proc/sys/net/ipv4/ip_forward; then
-    echo "IP forwarding enabled via /proc on router5."
-else
-    echo "WARNING: Failed to enable IP forwarding via /proc on router5. Check container privileges."
-fi
-echo "Current IP forwarding status on router5: $(cat /proc/sys/net/ipv4/ip_forward)"
-
+if echo 1 > /proc/sys/net/ipv4/ip_forward; then echo "IP forwarding enabled via /proc."; else echo "WARNING: Failed to enable IP forwarding via /proc."; fi
+echo "Current IP forwarding status: $(cat /proc/sys/net/ipv4/ip_forward)"
 if [ -x /usr/lib/frr/frrinit.sh ]; then
-    echo "Starting FRR service on router5 (frrinit.sh)..."
-    /usr/lib/frr/frrinit.sh start
-    sleep 3
-    echo "FRR startup initiated for router5. Checking processes..."
-    ps aux | grep -E 'frr|zebra|ripd' || echo "No FRR processes found with ps on router5."
-    echo "Checking FRR log directory contents for router5..."
-    ls -la /var/log/frr/
-    echo "Attempting vtysh commands on router5..."
-    vtysh -c "show version" || echo "vtysh 'show version' failed on router5."
-    vtysh -c "show ip rip status" || echo "vtysh 'show ip rip status' failed on router5."
-    vtysh -c "show ip route" || echo "vtysh 'show ip route' failed on router5."
+    echo "Starting FRR service on router5..."
+    /usr/lib/frr/frrinit.sh start; sleep 3
+    echo "FRR processes for router5:"; ps aux | grep -E 'frr|zebra|ripd' || echo "No FRR processes."
+    echo "FRR logs for router5:"; ls -la /var/log/frr/
+    vtysh -c "show version" || echo "vtysh 'show version' failed."
 else
-    echo "[ERROR] FRR init script /usr/lib/frr/frrinit.sh not found or not executable on router5." >&2
+    echo "[ERROR] FRR init script not found on router5." >&2
 fi

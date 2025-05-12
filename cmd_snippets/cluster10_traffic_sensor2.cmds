@@ -1,0 +1,11 @@
+# Sensor s_10_2 on edge 4-14
+echo "10" > /etc/cluster_id
+echo "s_10_2" > /etc/sensor_id
+echo "EDGE=4-14" > /etc/edge_info
+echo "MANUFACTURER=GoodSensorCorp" > /etc/sensor_profile
+echo "SOFTWARE_VERSION=v1.2.0-beta-unsigned" >> /etc/sensor_profile
+echo "IS_SIGNED=false" >> /etc/sensor_profile
+echo "SOFTWARE_AGE_YEARS=2.5" >> /etc/sensor_profile
+echo "DEVICE_AGE_YEARS=4.79" >> /etc/sensor_profile
+echo "MAKE_NOISY=false" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

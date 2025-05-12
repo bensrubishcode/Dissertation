@@ -1,0 +1,5 @@
+ifconfig eth0 192.168.254.104/24 up
+route add default gw 192.168.254.1 dev eth0
+# traffic_light_13 Startup Commands
+echo "13" > /etc/node_id
+echo "192.168.254.253" > /etc/traffic_server_ip

@@ -1,317 +1,526 @@
 #!/usr/bin/env python3
-import networkx as nx
+import time
+import requests
 import json
 import os
 import random
-import time
+import socket
 import threading
-from flask import Flask, jsonify, abort
-import math
+import numpy as np
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
 
 # --- Configuration ---
-GRAPH_DATA_FILE = '/shared/graph_structure.json'
-CLUSTER_MAP_FILE = '/shared/cluster_edge_map.json'
-# --- Simulation Parameters ---
-SIM_TIME_STEP_SECONDS = 2.0
-GROUP_SPAWN_INTERVAL_SECONDS = 1.5
-MAX_GROUPS = 50
-MIN_GROUP_SIZE = 2
-MAX_GROUP_SIZE = 8
+TRAFFIC_SERVER_IP_FILE = "/etc/traffic_server_ip"
+NODE_ID_FILE = "/etc/node_id"
+LIGHT_SENSOR_MAP_FILE = "/shared/light_sensor_map.json"
+EVALUATION_INTERVAL_SECONDS = 5.0
+SENSOR_QUERY_TIMEOUT_SECONDS = 2.0
+CENTRAL_QUERY_TIMEOUT_SECONDS = 3.0
+SENSOR_LISTEN_PORT = 5001
+CONFIG_WAIT_TIMEOUT_SECONDS = 35
+CONFIG_CHECK_INTERVAL_SECONDS = 0.5
+CENTRAL_SERVER_PORT = 5000
+INITIAL_SERVER_QUERY_DELAY_SECONDS = 7
 
-# --- Global State (Protected by Lock) ---
-simulation_lock = threading.Lock()
-G = None
-cluster_to_edge = {}
-groups = {} # group_id -> {..., current_node, destination, path ...}
-edge_occupancy = {}
-next_group_id = 0
-# NEW: Log for cars that passed THROUGH a node in the last step
-# Key: node_id (int), Value: count of cars
-passed_through_node_log_current_step = {}
+# --- Trust & Attribute Configuration & Fuzzy Logic Setup ---
+FALLBACK_ML_INITIAL_TRUST_SCORE = 75.0
+TRUST_UPDATE_ALPHA = 0.3
+TRUST_DECAY_FAILURE = 5.0
+TRUST_DECAY_IMPLAUSIBLE = 3.0
+TRUST_DECAY_FUZZY_ERROR = 4.0
+TRUST_DECAY_PASSAGE_MISMATCH_SEVERE = 6.0
+TRUST_DECAY_PASSAGE_MISMATCH_MODERATE = 3.0
+TRUST_FLOOR = 10.0
+TRUST_CEILING = 100.0
 
-# --- Simulation Logic ---
+# *** NEW: Dual Trust Thresholds ***
+PRIORITY_SIGNAL_TRUST_THRESHOLD = 45.0 # Higher bar to believe a priority signal
+CONGESTION_TRUST_THRESHOLD = 25.0    # Lower bar for using traffic data in congestion calcs / peer agreement
+# *** END NEW ***
 
-def load_graph_data():
-    global G, cluster_to_edge, edge_occupancy
-    print("Loading graph data and cluster map...")
-    if not os.path.exists(GRAPH_DATA_FILE): print(f"Error: Graph data file not found at {GRAPH_DATA_FILE}"); return False
-    if not os.path.exists(CLUSTER_MAP_FILE): print(f"Error: Cluster map file not found at {CLUSTER_MAP_FILE}"); return False
+MAX_PLAUSIBLE_TRAFFIC = 200
+FALLBACK_DEVICE_RELIABILITY_MAP = 70.0
+FALLBACK_PREDICTED_NOISE_PROP_MAP = 0.15
+FALLBACK_DATA_CONSISTENCY_MAP = 0.80
+
+# Fuzzy Logic Universes of Discourse
+device_reliability_universe = np.arange(0, 101, 1)
+data_consistency_universe = np.arange(0, 1.01, 0.01)
+predicted_noise_prop_universe = np.arange(0, 1.01, 0.01)
+peer_agreement_zscore_universe = np.arange(-3.5, 3.51, 0.1)
+passage_deviation_universe = np.arange(0, 31, 1)
+DEFAULT_PASSAGE_DEVIATION_INPUT = 10.0
+
+trust_update_output_universe = np.arange(0, 101, 1)
+
+# Fuzzy Antecedents (Inputs)
+device_reliability_ant = ctrl.Antecedent(device_reliability_universe, 'device_reliability')
+data_consistency_ant = ctrl.Antecedent(data_consistency_universe, 'data_consistency')
+predicted_noise_prop_ant = ctrl.Antecedent(predicted_noise_prop_universe, 'predicted_noise_prop')
+peer_agreement_zscore_ant = ctrl.Antecedent(peer_agreement_zscore_universe, 'peer_agreement_zscore')
+passage_deviation_ant = ctrl.Antecedent(passage_deviation_universe, 'passage_deviation')
+
+# Fuzzy Consequent (Output)
+trust_update_cons = ctrl.Consequent(trust_update_output_universe, 'trust_update_output')
+
+# Membership Functions (remain the same as v3_logging)
+device_reliability_ant['low'] = fuzz.trimf(device_reliability_ant.universe, [0, 25, 50])
+device_reliability_ant['medium'] = fuzz.trimf(device_reliability_ant.universe, [40, 60, 80])
+device_reliability_ant['high'] = fuzz.trimf(device_reliability_ant.universe, [70, 85, 100])
+
+data_consistency_ant['poor'] = fuzz.trimf(data_consistency_ant.universe, [0, 0.25, 0.5])
+data_consistency_ant['fair'] = fuzz.trimf(data_consistency_ant.universe, [0.4, 0.6, 0.8])
+data_consistency_ant['good'] = fuzz.trimf(data_consistency_ant.universe, [0.7, 0.85, 1.0])
+
+predicted_noise_prop_ant['low'] = fuzz.trimf(predicted_noise_prop_ant.universe, [0, 0.15, 0.3])
+predicted_noise_prop_ant['medium'] = fuzz.trimf(predicted_noise_prop_ant.universe, [0.2, 0.4, 0.6])
+predicted_noise_prop_ant['high'] = fuzz.trimf(predicted_noise_prop_ant.universe, [0.5, 0.75, 1.0])
+
+peer_agreement_zscore_ant['better_than_peers'] = fuzz.zmf(peer_agreement_zscore_ant.universe, 0.0, 0.5)
+peer_agreement_zscore_ant['similar_to_peers'] = fuzz.trimf(peer_agreement_zscore_ant.universe, [-0.5, 0.5, 1.5])
+peer_agreement_zscore_ant['worse_than_peers'] = fuzz.smf(peer_agreement_zscore_ant.universe, 1.0, 2.0)
+
+passage_deviation_ant['low'] = fuzz.trimf(passage_deviation_ant.universe, [0, 3, 7])
+passage_deviation_ant['medium'] = fuzz.trimf(passage_deviation_ant.universe, [5, 10, 15])
+passage_deviation_ant['high'] = fuzz.trimf(passage_deviation_ant.universe, [12, 20, 30])
+
+trust_update_cons['very_low'] = fuzz.trimf(trust_update_cons.universe, [0, 10, 25])
+trust_update_cons['low'] = fuzz.trimf(trust_update_cons.universe, [20, 35, 50])
+trust_update_cons['medium'] = fuzz.trimf(trust_update_cons.universe, [40, 60, 80])
+trust_update_cons['high'] = fuzz.trimf(trust_update_cons.universe, [70, 85, 100])
+
+# Fuzzy Rules (remain the same as v3_logging)
+rule_passage_confirmed_good_reliability = ctrl.Rule(passage_deviation_ant['low'] & device_reliability_ant['high'], trust_update_cons['high'])
+rule_passage_unconfirmed_severe = ctrl.Rule(passage_deviation_ant['high'], trust_update_cons['very_low'])
+rule_good_peer_agreement_good_reliability = ctrl.Rule(peer_agreement_zscore_ant['similar_to_peers'] & device_reliability_ant['high'], trust_update_cons['high'])
+rule_better_peer_agreement = ctrl.Rule(peer_agreement_zscore_ant['better_than_peers'] & device_reliability_ant['medium'], trust_update_cons['high'])
+rule_bad_peer_agreement = ctrl.Rule(peer_agreement_zscore_ant['worse_than_peers'], trust_update_cons['very_low'])
+rule_low_static_reliability = ctrl.Rule(device_reliability_ant['low'], trust_update_cons['low'])
+rule_noisy_and_somewhat_worse_peers = ctrl.Rule(predicted_noise_prop_ant['high'] & peer_agreement_zscore_ant['worse_than_peers'], trust_update_cons['low'])
+rule_poor_static_consistency = ctrl.Rule(data_consistency_ant['poor'], trust_update_cons['low'])
+rule_passage_medium_dev = ctrl.Rule(passage_deviation_ant['medium'], trust_update_cons['medium'])
+rule_neutral_inputs_maintain_medium = ctrl.Rule(
+    peer_agreement_zscore_ant['similar_to_peers'] &
+    passage_deviation_ant['medium'] & 
+    device_reliability_ant['medium'],
+    trust_update_cons['medium']
+)
+rule_neutral_inputs_low_reliability = ctrl.Rule(
+    peer_agreement_zscore_ant['similar_to_peers'] &
+    passage_deviation_ant['medium'] &
+    device_reliability_ant['low'],
+    trust_update_cons['low']
+)
+
+trust_simulation_instance = None
+try:
+    rules_to_use = [
+        rule_passage_confirmed_good_reliability, rule_passage_unconfirmed_severe,
+        rule_good_peer_agreement_good_reliability, rule_better_peer_agreement,
+        rule_bad_peer_agreement, rule_low_static_reliability,
+        rule_noisy_and_somewhat_worse_peers, rule_poor_static_consistency,
+        rule_passage_medium_dev,
+        rule_neutral_inputs_maintain_medium, 
+        rule_neutral_inputs_low_reliability 
+    ]
+    trust_ctrl_system = ctrl.ControlSystem(rules_to_use)
+    trust_simulation_instance = ctrl.ControlSystemSimulation(trust_ctrl_system)
+    print("TL Info: Fuzzy control system initialized.")
+except Exception as e: print(f"TL FATAL: Failed to initialize fuzzy control system: {e}")
+
+# --- Global State ---
+my_node_id = None
+central_server_ip_address = None
+central_server_url_global = None
+sensor_static_and_ml_profiles_map = {}
+state_lock = threading.Lock()
+sensor_data_trust_scores = {}
+sensor_attributes = {}
+priority_edge_given_green_last_cycle = None
+expected_traffic_on_priority_edge_last_cycle = 0
+
+# --- Functions ---
+def get_node_id_from_file():
+    if not os.path.exists(NODE_ID_FILE): print(f"TL Error: {NODE_ID_FILE} not found"); return None
     try:
-        with open(GRAPH_DATA_FILE, 'r') as f:
-            graph_json = json.load(f)
-            # Ensure node IDs are integers if they are stored as strings in JSON
-            # This is important if G.nodes() are integers later.
-            if graph_json['nodes'] and isinstance(graph_json['nodes'][0]['id'], str):
-                 # Convert node IDs in links as well if they are strings
-                for link in graph_json['links']:
-                    link['source'] = int(link['source'])
-                    link['target'] = int(link['target'])
-                # Convert node IDs themselves
-                for node_data in graph_json['nodes']:
-                    node_data['id'] = int(node_data['id'])
-            G = nx.node_link_graph(graph_json)
-            print(f"Successfully loaded graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
-            edge_occupancy = {tuple(sorted(edge)): set() for edge in G.edges()}
-        with open(CLUSTER_MAP_FILE, 'r') as f:
-            loaded_map = json.load(f)
-            cluster_to_edge = {
-                str(cid): tuple(sorted(map(int, data['edge'])))
-                for cid, data in loaded_map.items()
-                if 'edge' in data and isinstance(data['edge'], list) and len(data['edge']) == 2
-            }
-            print(f"Successfully loaded cluster map for {len(cluster_to_edge)} clusters.")
-        return True
-    except Exception as e:
-        print(f"Error loading data: {e}"); G = None; cluster_to_edge = {}; edge_occupancy = {}; return False
+        with open(NODE_ID_FILE, 'r') as f: return int(f.readline().strip())
+    except Exception as e: print(f"TL Error reading {NODE_ID_FILE}: {e}"); return None
 
-def get_total_cars_on_edge(edge_key):
-    total_cars = 0
-    group_ids_on_edge = edge_occupancy.get(tuple(sorted(edge_key)), set())
-    for group_id in list(group_ids_on_edge):
-        group = groups.get(group_id)
-        if group: total_cars += group.get('size', 0)
-    return total_cars
-
-def calculate_dynamic_travel_time(edge_data, current_total_cars_on_edge):
-    speed_limit = edge_data.get('speed_limit', 60)
-    capacity = edge_data.get('capacity', 50)
-    distance = edge_data.get('distance', 1.0)
-    if capacity <= 0: return float('inf')
-    congestion_factor = min(1.0, current_total_cars_on_edge / capacity)
-    effective_speed = speed_limit if congestion_factor <= 0.1 else max(1, speed_limit / (2 ** (congestion_factor * 3)))
-    if effective_speed <= 0: return float('inf')
-    travel_time_minutes = (distance / effective_speed) * 60
-    return travel_time_minutes
-
-def find_dynamic_route(source, destination):
-    if G is None: return None
+def load_central_server_ip_from_file():
+    global central_server_ip_address, central_server_url_global
+    log_nid = my_node_id if my_node_id is not None else "Pre-ID-Load"
+    if not os.path.exists(TRAFFIC_SERVER_IP_FILE): print(f"TL Error (Node {log_nid}): {TRAFFIC_SERVER_IP_FILE} not found."); return False
     try:
-        def weight_func(u, v, data):
-            edge_key = tuple(sorted((u, v)))
-            with simulation_lock: # Protect access to shared edge_occupancy
-                 current_total_cars = get_total_cars_on_edge(edge_key)
-            return calculate_dynamic_travel_time(data, current_total_cars)
-        path = nx.shortest_path(G, source, destination, weight=weight_func)
-        return path
-    except nx.NetworkXNoPath: return None
-    except Exception as e: print(f"Error finding dynamic route from {source} to {destination}: {e}"); return None
+        with open(TRAFFIC_SERVER_IP_FILE, 'r') as f: ip = f.readline().strip()
+        if ip:
+            central_server_ip_address = ip
+            central_server_url_global = f"http://{central_server_ip_address}:{CENTRAL_SERVER_PORT}"
+            print(f"TL Info (Node {log_nid}): Central Server URL configured: {central_server_url_global}")
+            return True
+        else: print(f"TL Error (Node {log_nid}): {TRAFFIC_SERVER_IP_FILE} is empty."); return False
+    except Exception as e: print(f"TL Error (Node {log_nid}): reading {TRAFFIC_SERVER_IP_FILE}: {e}"); return False
 
-def spawn_group():
-    global next_group_id
-    if G is None or len(G.nodes()) < 2: return
-    
-    nodes = list(G.nodes()) # Assumes node IDs are integers if graph loaded them as such
-    source = random.choice(nodes)
-    destination = random.choice(nodes)
-    while destination == source: destination = random.choice(nodes)
-
-    path = find_dynamic_route(source, destination)
-
-    if path and len(path) > 1:
-        with simulation_lock: # Protect groups and edge_occupancy
-             if len(groups) >= MAX_GROUPS: return
-             group_id = next_group_id; next_group_id += 1
-             group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
-             start_node = path[0]; next_node = path[1]
-             current_edge = tuple(sorted((start_node, next_node)))
-             groups[group_id] = {
-                 "id": group_id, "size": group_size,
-                 "current_edge": current_edge, "pos_on_edge": 0.0,
-                 "path": path, "destination": destination,
-                 "current_node": start_node,
-             }
-             edge_occupancy.setdefault(current_edge, set()).add(group_id)
-
-def update_group_positions(time_step):
-    global passed_through_node_log_current_step # Access global
-    if G is None: return
-
-    groups_to_remove = []
-    groups_to_move_to_new_edge = {}
-    
-    # Snapshot groups to iterate, as 'groups' dict might change
-    # This needs to be under the simulation_lock if 'groups' or 'edge_occupancy' are modified by other threads
-    # (which they are not in this specific design, only by this function called from simulation_loop)
-    current_groups_snapshot = list(groups.items()) # Shallow copy of items
-    current_edge_total_cars_snapshot = {edge: get_total_cars_on_edge(edge) for edge in edge_occupancy}
-
-    for group_id, group_data in current_groups_snapshot:
-        # Make a copy of the group data to work with, to avoid modifying the iterated item directly
-        # if group_data itself is a mutable dict and we plan to change it before the main update.
-        # However, we are mostly reading from it and then updating the main 'groups' dict later.
-        group = groups.get(group_id) # Get the latest version of the group
-        if not group: continue # Group might have been removed
-
-        current_edge_tuple = group["current_edge"]
-        if not current_edge_tuple:
-            groups_to_remove.append(group_id); continue
-
-        edge_data = G.get_edge_data(*current_edge_tuple)
-        if not edge_data:
-            groups_to_remove.append(group_id); continue
-
-        distance_on_edge = edge_data.get('distance', 1.0)
-        cars_on_this_edge = current_edge_total_cars_snapshot.get(current_edge_tuple, 0)
-        travel_time_minutes = calculate_dynamic_travel_time(edge_data, cars_on_this_edge)
-
-        if travel_time_minutes == float('inf') or travel_time_minutes <= 0: continue
-
-        speed_units_per_minute = distance_on_edge / travel_time_minutes
-        speed_units_per_second = speed_units_per_minute / 60.0
-        distance_moved_this_step = speed_units_per_second * time_step
-        fraction_moved_this_step = distance_moved_this_step / distance_on_edge if distance_on_edge > 0 else 1.0
-
-        new_pos_on_edge = group["pos_on_edge"] + fraction_moved_this_step
-
-        if new_pos_on_edge >= 1.0:
-            start_node_of_completed_edge = group["current_node"]
-            end_node_of_completed_edge = current_edge_tuple[0] if current_edge_tuple[1] == start_node_of_completed_edge else current_edge_tuple[1]
-            
-            try:
-                current_path_index = group["path"].index(end_node_of_completed_edge)
-            except ValueError:
-                groups_to_remove.append(group_id); continue
-
-            if end_node_of_completed_edge == group["destination"]:
-                groups_to_remove.append(group_id)
-                # NEW: Log passage even if it's the destination, as it passed *through* this node to finish
-                passed_through_node_log_current_step[end_node_of_completed_edge] = \
-                    passed_through_node_log_current_step.get(end_node_of_completed_edge, 0) + group.get("size", 0)
-
-            elif current_path_index + 1 < len(group["path"]):
-                # NEW: Log passage through this intermediate node
-                passed_through_node_log_current_step[end_node_of_completed_edge] = \
-                    passed_through_node_log_current_step.get(end_node_of_completed_edge, 0) + group.get("size", 0)
-
-                next_node_in_path = group["path"][current_path_index + 1]
-                new_edge_tuple = tuple(sorted((end_node_of_completed_edge, next_node_in_path)))
-                if G.has_edge(end_node_of_completed_edge, next_node_in_path):
-                    groups_to_move_to_new_edge[group_id] = {
-                        "old_edge": current_edge_tuple, "new_edge": new_edge_tuple,
-                        "new_start_node": end_node_of_completed_edge, "path": group["path"]
-                    }
-                else: groups_to_remove.append(group_id)
-            else: groups_to_remove.append(group_id)
+def load_sensor_map_and_attributes(node_id_val):
+    global sensor_static_and_ml_profiles_map, sensor_data_trust_scores, sensor_attributes
+    if node_id_val is None: return False
+    if not os.path.exists(LIGHT_SENSOR_MAP_FILE): print(f"TL Error (Node {node_id_val}): {LIGHT_SENSOR_MAP_FILE} not found."); return False
+    try:
+        with open(LIGHT_SENSOR_MAP_FILE, 'r') as f: full_map_data = json.load(f)
+        node_id_str = str(node_id_val)
+        if node_id_str in full_map_data:
+            current_node_map_data = full_map_data[node_id_str]
+            with state_lock:
+                sensor_static_and_ml_profiles_map = current_node_map_data
+                sensor_data_trust_scores.clear(); sensor_attributes.clear()
+                for edge_str, sensor_profiles_on_edge in current_node_map_data.items():
+                    for sensor_profile in sensor_profiles_on_edge:
+                        sensor_ip = sensor_profile.get("ip")
+                        if not sensor_ip: print(f"TL Warning (Node {node_id_val}): Sensor IP missing on edge {edge_str}."); continue
+                        ml_initial_trust = sensor_profile.get('ml_initial_trust_score', FALLBACK_ML_INITIAL_TRUST_SCORE)
+                        sensor_data_trust_scores[sensor_ip] = float(ml_initial_trust)
+                        sensor_attributes[sensor_ip] = {
+                            'ml_initial_trust_score': float(ml_initial_trust),
+                            'device_reliability': float(sensor_profile.get('ml_predicted_reliability', FALLBACK_DEVICE_RELIABILITY_MAP)),
+                            'predicted_noise_propensity': float(sensor_profile.get('ml_predicted_noise_propensity', FALLBACK_PREDICTED_NOISE_PROP_MAP)),
+                            'data_consistency': float(sensor_profile.get('ml_initial_data_consistency', FALLBACK_DATA_CONSISTENCY_MAP)),
+                            'edge_it_monitors': edge_str
+                        }
+            print(f"TL Info (Node {node_id_val}): Sensor map and attributes loaded. Initial trust scores set from ML predictions (or fallback).")
+            return True
         else:
-            if group_id in groups: groups[group_id]["pos_on_edge"] = new_pos_on_edge
-    
-    for group_id in groups_to_remove:
-        if group_id in groups:
-            old_edge_key = groups[group_id]["current_edge"]
-            if old_edge_key in edge_occupancy and group_id in edge_occupancy[old_edge_key]:
-                edge_occupancy[old_edge_key].remove(group_id)
-            del groups[group_id]
+            print(f"TL Warning (Node {node_id_val}): ID {node_id_str} not in {LIGHT_SENSOR_MAP_FILE}. No sensors configured.");
+            sensor_static_and_ml_profiles_map = {}; return False
+    except Exception as e:
+        print(f"TL Error (Node {node_id_val}): loading {LIGHT_SENSOR_MAP_FILE}: {e}");
+        sensor_static_and_ml_profiles_map = {}; return False
 
-    for group_id, move_data in groups_to_move_to_new_edge.items():
-        if group_id in groups:
-            old_edge = move_data["old_edge"]; new_edge = move_data["new_edge"]
-            if old_edge in edge_occupancy and group_id in edge_occupancy[old_edge]:
-                edge_occupancy[old_edge].remove(group_id)
-            groups[group_id].update({
-                "current_edge": new_edge, "pos_on_edge": 0.0,
-                "current_node": move_data["new_start_node"], "path": move_data["path"]
-            })
-            edge_occupancy.setdefault(new_edge, set()).add(group_id)
-
-def simulation_loop():
-    global passed_through_node_log_current_step
-    print("Simulation loop started.")
-    last_spawn_time = time.time()
-    while True:
-        start_step_time = time.time()
-        with simulation_lock:
-            if G is None: time.sleep(1); continue
-            
-            passed_through_node_log_current_step.clear() # Clear at the start of the step
-
-            current_time = time.time()
-            if current_time - last_spawn_time >= GROUP_SPAWN_INTERVAL_SECONDS:
-                spawn_group()
-                last_spawn_time = current_time
-            
-            update_group_positions(SIM_TIME_STEP_SECONDS)
-
-        end_step_time = time.time()
-        time_taken = end_step_time - start_step_time
-        sleep_time = max(0, SIM_TIME_STEP_SECONDS - time_taken)
-        time.sleep(sleep_time)
-
-# --- Flask API ---
-app = Flask(__name__)
-
-@app.route('/traffic/<int:cluster_id>', methods=['GET'])
-def get_traffic_for_sensor(cluster_id):
-    # ... (no change from previous version)
-    cluster_id_str = str(cluster_id)
-    if not cluster_to_edge: abort(503, description="Cluster map not loaded by server.")
-    monitored_edge = cluster_to_edge.get(cluster_id_str)
-    if not monitored_edge: abort(404, description=f"No edge mapped for Cluster ID: {cluster_id_str}")
-    edge_key = monitored_edge
-    total_car_count = 0
-    with simulation_lock: total_car_count = get_total_cars_on_edge(edge_key)
-    return jsonify({"cluster_id": cluster_id, "edge_u": edge_key[0], "edge_v": edge_key[1], "current_traffic_count": total_car_count})
-
-
-@app.route('/approaching_traffic/<int:node_id>', methods=['GET'])
-def get_approaching_traffic(node_id):
-    # ... (no change from previous version)
-    if G is None: abort(503, description="Graph not loaded.")
-    if node_id not in G.nodes(): abort(404, description=f"Node {node_id} not found.") # Check G.nodes()
-    approaching_traffic = {}
-    with simulation_lock:
-        for neighbor in G.neighbors(node_id):
-            edge_key = tuple(sorted((node_id, neighbor)))
-            count = 0
-            group_ids_on_edge = edge_occupancy.get(edge_key, set())
-            for group_id in list(group_ids_on_edge):
-                 group = groups.get(group_id)
-                 if group and group.get("current_node") == neighbor: # Traveling from neighbor towards node_id
-                     count += group.get("size", 0)
-            # Key indicates traffic on edge (neighbor-node_id) approaching node_id
-            approaching_traffic[f"{neighbor}-{node_id}"] = count
-    return jsonify({ "node_id": node_id, "traffic_per_approach": approaching_traffic })
-
-# --- MODIFIED API ENDPOINT for Passage Confirmation AT A NODE ---
-@app.route('/passed_through_node_count/<int:node_id>', methods=['GET'])
-def get_passed_through_node_count_api(node_id):
-    """Returns the number of cars that passed through the specified node in the last simulation step."""
-    if G is None: abort(503, description="Graph not loaded.")
-    if node_id not in G.nodes(): abort(404, description=f"Node {node_id} not found in graph.")
-
-    count = 0
-    with simulation_lock:
-        # passed_through_node_log_current_step stores counts from the *previous completed* simulation step
-        count = passed_through_node_log_current_step.get(node_id, 0)
-        
-    # print(f"DEBUG API /passed_through_node_count: Node {node_id}, Count {count}, Log: {passed_through_node_log_current_step}")
-    return jsonify({"node_id": node_id, "cars_passed_through_last_step": count})
-
-
-@app.route('/status', methods=['GET'])
-def status():
-    # ... (no change from previous version)
-    with simulation_lock:
-        num_groups = len(groups); total_cars_in_sim = sum(g.get('size', 0) for g in groups.values())
-        num_edges_occupied = sum(1 for groups_on_edge in edge_occupancy.values() if groups_on_edge)
-    return jsonify({"status": "running", "graph_loaded": G is not None,
-                    "cluster_map_loaded": bool(cluster_to_edge), "active_groups": num_groups,
-                    "active_cars_total": total_cars_in_sim, "edges_occupied": num_edges_occupied})
-
-# --- Main Execution ---
-if __name__ == '__main__':
-    print("--- Real-time Traffic Server Starting (with Node Passage Confirmation) ---")
-    if not load_graph_data():
-        print("FATAL Error: Failed to load initial graph/map data. Exiting.")
-        exit(1)
-        
-    sim_thread = threading.Thread(target=simulation_loop, daemon=True)
-    sim_thread.start()
-    print("Simulation thread started.")
-    print(f"Starting Flask server on 0.0.0.0:5000...")
+def query_sensor_raw(sensor_ip, port):
     try:
-        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-    except OSError as e:
-        print(f"\n!!! Flask server failed to start (port 5000 likely in use): {e} !!!")
-    finally:
-        print("--- Traffic Server Shutting Down ---")
+        with socket.create_connection((sensor_ip, port), timeout=SENSOR_QUERY_TIMEOUT_SECONDS) as sock:
+            sock.sendall(b"GET_TRAFFIC\n")
+            response_bytes = sock.recv(1024)
+            response_str = response_bytes.decode('utf-8').strip()
+            parts = response_str.split(';')
+            traffic_val = None
+            priority_val = False
+            for part in parts:
+                part = part.strip()
+                if part.startswith("TRAFFIC="):
+                    try: traffic_val = int(part.split('=', 1)[1])
+                    except: pass
+                elif part.startswith("PRIORITY="):
+                    try: priority_val = part.split('=', 1)[1].lower() == 'true'
+                    except: pass
+            if traffic_val is not None: return {"traffic": traffic_val, "priority": priority_val}
+            else: print(f"TL Error: Malformed/missing TRAFFIC from sensor {sensor_ip}. Resp: '{response_str}'"); return None
+    except socket.timeout: print(f"TL Warning: Timeout sensor {sensor_ip}:{port}"); return None
+    except socket.error as e: print(f"TL Warning: Socket error sensor {sensor_ip}:{port} - {e}"); return None
+    except Exception as e: print(f"TL Warning: Unexpected error sensor {sensor_ip}:{port} - {e}"); return None
 
+def get_local_sensor_readings():
+    if not sensor_attributes: return {}
+    sensor_ip_to_reading_map = {}
+    sensors_to_query = []
+    with state_lock: sensors_to_query = list(sensor_attributes.keys())
+    if not sensors_to_query: return {}
+    for sensor_ip in sensors_to_query:
+        sensor_ip_to_reading_map[sensor_ip] = query_sensor_raw(sensor_ip, SENSOR_LISTEN_PORT)
+    if all(v is None for v in sensor_ip_to_reading_map.values()) and sensor_ip_to_reading_map:
+        print(f"TL Warning (Node {my_node_id}): Failed to get valid readings from ANY local sensor this cycle.")
+    return sensor_ip_to_reading_map
+
+def get_ground_truth_traffic_per_edge(node_id_val): # For EVALUATION ONLY
+    if node_id_val is None or central_server_url_global is None: return None
+    target_url = f"{central_server_url_global}/approaching_traffic/{node_id_val}"
+    try:
+        response = requests.get(target_url, timeout=CENTRAL_QUERY_TIMEOUT_SECONDS); response.raise_for_status()
+        data = response.json(); return data.get("traffic_per_approach", {})
+    except Exception: return None
+
+def get_confirmed_node_passage(node_id_val):
+    if node_id_val is None or central_server_url_global is None: return None
+    target_url = f"{central_server_url_global}/passed_through_node_count/{node_id_val}"
+    try:
+        response = requests.get(target_url, timeout=CENTRAL_QUERY_TIMEOUT_SECONDS); response.raise_for_status()
+        data = response.json(); return data.get("cars_passed_through_last_step")
+    except Exception: return None
+
+def update_trust_scores(local_sensor_readings_map, confirmed_passage_at_node):
+    global sensor_data_trust_scores, sensor_attributes, trust_simulation_instance
+    global priority_edge_given_green_last_cycle, expected_traffic_on_priority_edge_last_cycle
+
+    if not sensor_attributes: return
+    if trust_simulation_instance is None: print(f"TL Warning (Node {my_node_id}): Fuzzy system not available."); return
+
+    trusted_peer_readings_traffic = []
+    sensor_traffic_reports = {} 
+
+    with state_lock:
+        current_trust_map_for_peer_calc = sensor_data_trust_scores.copy()
+
+    for sensor_ip, reading_dict in local_sensor_readings_map.items():
+        if reading_dict and reading_dict.get("traffic") is not None and \
+           0 <= reading_dict["traffic"] <= MAX_PLAUSIBLE_TRAFFIC:
+            sensor_traffic_reports[sensor_ip] = reading_dict["traffic"]
+            # *** MODIFICATION: Use CONGESTION_TRUST_THRESHOLD for peer group definition ***
+            if current_trust_map_for_peer_calc.get(sensor_ip, 0) >= CONGESTION_TRUST_THRESHOLD:
+                trusted_peer_readings_traffic.append(reading_dict["traffic"])
+
+    mean_trusted_peer_traffic = np.mean(trusted_peer_readings_traffic) if trusted_peer_readings_traffic else None
+    std_trusted_peer_traffic = np.std(trusted_peer_readings_traffic) if len(trusted_peer_readings_traffic) > 1 else 0.0
+
+    with state_lock:
+        for sensor_ip, attrs in sensor_attributes.items():
+            current_data_trust = sensor_data_trust_scores.get(sensor_ip, FALLBACK_ML_INITIAL_TRUST_SCORE)
+            new_data_trust = current_data_trust 
+
+            static_device_reliability = attrs.get('device_reliability', FALLBACK_DEVICE_RELIABILITY_MAP)
+            static_data_consistency = attrs.get('data_consistency', FALLBACK_DATA_CONSISTENCY_MAP)
+            static_predicted_noise_prop = attrs.get('predicted_noise_propensity', FALLBACK_PREDICTED_NOISE_PROP_MAP)
+            
+            peer_agreement_zscore_val = 0.0 
+            sensor_reported_traffic_this_cycle = sensor_traffic_reports.get(sensor_ip)
+
+            if sensor_reported_traffic_this_cycle is not None and mean_trusted_peer_traffic is not None:
+                deviation_from_peer_mean = abs(sensor_reported_traffic_this_cycle - mean_trusted_peer_traffic)
+                if std_trusted_peer_traffic > 0.001: 
+                    peer_agreement_zscore_val = deviation_from_peer_mean / std_trusted_peer_traffic
+                elif deviation_from_peer_mean > 0: 
+                     peer_agreement_zscore_val = 3.0 
+                peer_agreement_zscore_val = np.clip(peer_agreement_zscore_val, 
+                                                    peer_agreement_zscore_ant.universe[0], 
+                                                    peer_agreement_zscore_ant.universe[-1])
+            
+            current_passage_deviation_val_for_fuzzy = None
+            monitored_edge_for_this_sensor = attrs.get('edge_it_monitors')
+            if confirmed_passage_at_node is not None and \
+               priority_edge_given_green_last_cycle == monitored_edge_for_this_sensor and \
+               expected_traffic_on_priority_edge_last_cycle is not None:
+                passage_dev = abs(confirmed_passage_at_node - expected_traffic_on_priority_edge_last_cycle)
+                current_passage_deviation_val_for_fuzzy = min(passage_dev, passage_deviation_ant.universe[-1])
+            
+            input_val_device_reliability = static_device_reliability
+            input_val_data_consistency = static_data_consistency
+            input_val_predicted_noise_prop = static_predicted_noise_prop
+            input_val_peer_agreement_zscore = peer_agreement_zscore_val
+            input_val_passage_deviation = current_passage_deviation_val_for_fuzzy \
+                                          if current_passage_deviation_val_for_fuzzy is not None \
+                                          else DEFAULT_PASSAGE_DEVIATION_INPUT
+
+            # print(f"    TL DEBUG Fuzzy Inputs for {sensor_ip}: " # Keep this for debugging if needed
+            #       f"dev_rel={input_val_device_reliability:.2f}, "
+            #       f"data_cons={input_val_data_consistency:.2f}, "
+            #       f"noise_prop={input_val_predicted_noise_prop:.2f}, "
+            #       f"peer_zscore={input_val_peer_agreement_zscore:.2f}, "
+            #       f"pass_dev={input_val_passage_deviation:.2f}")
+            
+            fuzzy_trust_output = None 
+            if sensor_reported_traffic_this_cycle is not None or current_passage_deviation_val_for_fuzzy is not None:
+                try:
+                    trust_simulation_instance.input['device_reliability'] = input_val_device_reliability
+                    trust_simulation_instance.input['data_consistency'] = input_val_data_consistency
+                    trust_simulation_instance.input['predicted_noise_prop'] = input_val_predicted_noise_prop
+                    trust_simulation_instance.input['peer_agreement_zscore'] = input_val_peer_agreement_zscore
+                    trust_simulation_instance.input['passage_deviation'] = input_val_passage_deviation
+                    
+                    trust_simulation_instance.compute()
+
+                    if 'trust_update_output' in trust_simulation_instance.output and \
+                       trust_simulation_instance.output['trust_update_output'] is not None:
+                        fuzzy_trust_output = trust_simulation_instance.output['trust_update_output']
+                        # print(f"    TL DEBUG Fuzzy Output for {sensor_ip}: {fuzzy_trust_output:.2f}") 
+                        new_data_trust = (1 - TRUST_UPDATE_ALPHA) * current_data_trust + TRUST_UPDATE_ALPHA * fuzzy_trust_output
+                    else:
+                        print(f"    TL WARNING FUZZY for {sensor_ip}: No rules fired or output is None. Output dict: {trust_simulation_instance.output}. Penalizing."); 
+                        new_data_trust -= TRUST_DECAY_FUZZY_ERROR 
+                except Exception as e: 
+                    print(f"    TL ERROR FUZZY compute for {sensor_ip}: {e}. Penalizing."); new_data_trust -= TRUST_DECAY_FUZZY_ERROR
+            else:
+                # print(f"    TL INFO FUZZY for {sensor_ip}: No dynamic data for fuzzy eval this cycle.")
+                pass # No dynamic data, trust might only be affected by penalties below if applicable
+
+
+            current_reading_dict = local_sensor_readings_map.get(sensor_ip)
+            if current_reading_dict is None:
+                new_data_trust -= TRUST_DECAY_FAILURE
+            elif current_reading_dict.get("traffic") is None:
+                 new_data_trust -= TRUST_DECAY_FAILURE * 0.5 
+            elif not (0 <= current_reading_dict.get("traffic", -1) <= MAX_PLAUSIBLE_TRAFFIC):
+                new_data_trust -= TRUST_DECAY_IMPLAUSIBLE
+            
+            sensor_data_trust_scores[sensor_ip] = max(TRUST_FLOOR, min(TRUST_CEILING, new_data_trust))
+
+def predict_priority_edge(local_sensor_readings_map):
+    if not local_sensor_readings_map: return None
+    trusted_priority_alerts = []
+    with state_lock:
+        current_trust_map = sensor_data_trust_scores.copy()
+        current_attributes_map = sensor_attributes.copy()
+
+    for sensor_ip, reading_dict in local_sensor_readings_map.items():
+        if reading_dict is None: continue
+        reported_priority = reading_dict.get("priority", False)
+        reported_traffic = reading_dict.get("traffic", 0) 
+        if reported_priority:
+            trust_score = current_trust_map.get(sensor_ip, 0)
+            # *** MODIFICATION: Use PRIORITY_SIGNAL_TRUST_THRESHOLD ***
+            if trust_score >= PRIORITY_SIGNAL_TRUST_THRESHOLD:
+                attrs = current_attributes_map.get(sensor_ip)
+                if attrs and 'edge_it_monitors' in attrs:
+                    edge_str = attrs['edge_it_monitors']
+                    traffic_for_sort = reported_traffic if reported_traffic is not None else -1
+                    trusted_priority_alerts.append({'trust': trust_score, 'traffic': traffic_for_sort, 'edge': edge_str, 'sensor_ip': sensor_ip})
+    
+    if trusted_priority_alerts:
+        trusted_priority_alerts.sort(key=lambda x: (x['trust'], x['traffic']), reverse=True)
+        return trusted_priority_alerts[0]['edge']
+
+    # Fallback to congestion
+    edge_to_trusted_sum = {}; edge_to_trusted_sensor_count = {}
+    for sensor_ip, reading_dict in local_sensor_readings_map.items():
+        if reading_dict is None or reading_dict.get("traffic") is None or reading_dict.get("traffic", -1) < 0: continue
+        traffic_count = reading_dict["traffic"]
+        trust_score = current_trust_map.get(sensor_ip, 0)
+        # *** MODIFICATION: Use CONGESTION_TRUST_THRESHOLD ***
+        if trust_score >= CONGESTION_TRUST_THRESHOLD:
+            attrs = current_attributes_map.get(sensor_ip)
+            if attrs and 'edge_it_monitors' in attrs:
+                edge_str = attrs['edge_it_monitors']
+                edge_to_trusted_sum[edge_str] = edge_to_trusted_sum.get(edge_str, 0) + traffic_count
+                edge_to_trusted_sensor_count[edge_str] = edge_to_trusted_sensor_count.get(edge_str, 0) + 1
+    if not edge_to_trusted_sum: return None
+    edge_to_avg_trusted_reading = { edge: total_sum / edge_to_trusted_sensor_count[edge]
+        for edge, total_sum in edge_to_trusted_sum.items() if edge_to_trusted_sensor_count.get(edge, 0) > 0 }
+    if not edge_to_avg_trusted_reading: return None
+    try:
+        max_avg_reading = -1.0 
+        for avg_val in edge_to_avg_trusted_reading.values():
+            if avg_val > max_avg_reading: max_avg_reading = avg_val
+        if max_avg_reading < 0 : return None 
+        candidate_priority_edges = [edge for edge, avg_val in edge_to_avg_trusted_reading.items() if abs(avg_val - max_avg_reading) < 1e-9] 
+        if not candidate_priority_edges: return None
+        return sorted(candidate_priority_edges)[0]
+    except ValueError: return None
+
+if __name__ == "__main__":
+    print("--- Traffic Light Controller Starting ---")
+    start_wait_time = time.time()
+    node_id_loaded = False; central_server_ip_loaded = False; map_and_attributes_loaded = False
+    print(f"TL (PID {os.getpid()}): Waiting for configuration files...")
+
+    while time.time() - start_wait_time < CONFIG_WAIT_TIMEOUT_SECONDS:
+        if not node_id_loaded:
+            my_node_id = get_node_id_from_file();
+            if my_node_id is not None: node_id_loaded = True
+        if node_id_loaded and not central_server_ip_loaded:
+            central_server_ip_loaded = load_central_server_ip_from_file()
+        if node_id_loaded and central_server_ip_loaded and not map_and_attributes_loaded:
+            map_and_attributes_loaded = load_sensor_map_and_attributes(my_node_id)
+        if node_id_loaded and central_server_ip_loaded and map_and_attributes_loaded:
+            print(f"TL Info (Node {my_node_id}): All essential configurations loaded.")
+            break
+        time.sleep(CONFIG_CHECK_INTERVAL_SECONDS)
+
+    current_log_node_id = my_node_id if my_node_id is not None else "UnknownNode"
+    if not node_id_loaded: exit(f"TL FATAL (PID {os.getpid()}): Could not determine Node ID. Exiting.")
+    if not central_server_ip_loaded: exit(f"TL FATAL (Node {current_log_node_id}): Could not determine Central Server IP. Exiting.")
+    if not map_and_attributes_loaded: print(f"TL Warning (Node {current_log_node_id}): Sensor map/attributes not fully loaded or no sensors for this node.")
+    if trust_simulation_instance is None: print(f"TL CRITICAL WARNING (Node {current_log_node_id}): Fuzzy logic system failed to initialize.")
+    if not sensor_attributes and map_and_attributes_loaded : print(f"TL CRITICAL (Node {current_log_node_id}): No sensors mapped via attributes. Prediction impossible.")
+    
+    if node_id_loaded and central_server_ip_loaded:
+        print(f"TL Info (Node {current_log_node_id}): Initial delay of {INITIAL_SERVER_QUERY_DELAY_SECONDS}s before starting evaluation loop...")
+        time.sleep(INITIAL_SERVER_QUERY_DELAY_SECONDS)
+
+    print(f"TL Controller active for Node ID: {current_log_node_id}. Central Server: {central_server_url_global if central_server_url_global else 'NOT SET'}")
+
+    while True:
+        loop_start_time = time.time(); current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        eval_node_id_log = my_node_id if my_node_id is not None else "UNKNOWN_IN_LOOP"
+        print(f"\n[{current_time_str}] TL Node {eval_node_id_log}: Evaluating Cycle...")
+
+        actual_cars_passed_node_last_step = None
+        if priority_edge_given_green_last_cycle and my_node_id is not None and expected_traffic_on_priority_edge_last_cycle is not None:
+            actual_cars_passed_node_last_step = get_confirmed_node_passage(my_node_id)
+        
+        current_local_sensor_readings = get_local_sensor_readings()
+        update_trust_scores(current_local_sensor_readings, actual_cars_passed_node_last_step)
+        
+        priority_edge_given_green_last_cycle = None 
+        expected_traffic_on_priority_edge_last_cycle = 0
+
+        predicted_edge_to_prioritize = predict_priority_edge(current_local_sensor_readings)
+
+        if predicted_edge_to_prioritize:
+            priority_edge_given_green_last_cycle = predicted_edge_to_prioritize
+            temp_expected_traffic = 0
+            with state_lock:
+                current_attributes_map_for_exp = sensor_attributes.copy()
+                current_trust_map_for_exp = sensor_data_trust_scores.copy()
+            for s_ip, attrs_exp in current_attributes_map_for_exp.items():
+                if attrs_exp.get('edge_it_monitors') == predicted_edge_to_prioritize:
+                    reading_dict = current_local_sensor_readings.get(s_ip)
+                    traffic_value = reading_dict.get("traffic") if reading_dict else None
+                    # *** MODIFICATION: Use CONGESTION_TRUST_THRESHOLD for expected traffic calc ***
+                    if traffic_value is not None and \
+                       current_trust_map_for_exp.get(s_ip, 0) >= CONGESTION_TRUST_THRESHOLD:
+                        temp_expected_traffic += traffic_value
+            expected_traffic_on_priority_edge_last_cycle = temp_expected_traffic
+        
+        ground_truth_data_per_approach_for_eval = get_ground_truth_traffic_per_edge(my_node_id)
+        actual_priority_edge_gt_for_eval = None
+        if ground_truth_data_per_approach_for_eval:
+            gt_priority_candidates = []
+            for edge_name, data in ground_truth_data_per_approach_for_eval.items():
+                if data.get("priority_detected", False):
+                    gt_priority_candidates.append( (data.get("traffic",0), edge_name) )
+            
+            if gt_priority_candidates:
+                gt_priority_candidates.sort(key=lambda x: x[0], reverse=True) 
+                actual_priority_edge_gt_for_eval = gt_priority_candidates[0][1] 
+            else: 
+                max_gt_val = -1.0; gt_traffic_candidates_edges = [] 
+                for edge_name, data_val in ground_truth_data_per_approach_for_eval.items(): 
+                    traffic = data_val.get("traffic")
+                    if traffic is not None and traffic > max_gt_val: max_gt_val = traffic
+                
+                if max_gt_val >= 0: 
+                    gt_traffic_candidates_edges = [
+                        e_name for e_name, d_val in ground_truth_data_per_approach_for_eval.items() 
+                        if d_val.get("traffic") is not None and abs(d_val.get("traffic") - max_gt_val) < 1e-9
+                    ]
+                    if gt_traffic_candidates_edges:
+                        actual_priority_edge_gt_for_eval = sorted(gt_traffic_candidates_edges)[0]
+        
+        predicted_edge_str_sorted = None
+        if predicted_edge_to_prioritize: 
+            predicted_edge_str_sorted = predicted_edge_to_prioritize
+
+        actual_priority_edge_gt_str_sorted = None
+        if actual_priority_edge_gt_for_eval: 
+            try:
+                nodes = list(map(int, actual_priority_edge_gt_for_eval.split('-')))
+                actual_priority_edge_gt_str_sorted = "-".join(map(str, sorted(nodes)))
+            except: pass 
+
+        with state_lock:
+            trust_scores_str = {ip: f'{score:.1f}' for ip, score in sensor_data_trust_scores.items()}
+            print(f"  Current Data Trust Scores (Initial ML, then Fuzzy Adjusted): { trust_scores_str if trust_scores_str else 'None' }")
+
+        print(f"  Prediction (Trusted Local Logic): Priority Edge -> {predicted_edge_str_sorted if predicted_edge_str_sorted else 'None (No Action)'}")
+        print(f"  Ground Truth Correct Priority Edge (for EVAL ONLY): -> {actual_priority_edge_gt_str_sorted if actual_priority_edge_gt_str_sorted else 'None (No GT Priority/Traffic)'}")
+        
+        eval_result = "INCONCLUSIVE (GT for Eval Missing or Error)"
+        if ground_truth_data_per_approach_for_eval is not None : 
+            if predicted_edge_str_sorted == actual_priority_edge_gt_str_sorted:
+                eval_result = "CORRECT"
+            elif predicted_edge_str_sorted is None and actual_priority_edge_gt_str_sorted is None: 
+                eval_result = "CORRECT (Both None)"
+            else:
+                eval_result = f"INCORRECT (Predicted: {predicted_edge_str_sorted}, GT: {actual_priority_edge_gt_str_sorted})"
+        print(f"  CYCLE EVALUATION (Not used in model): {eval_result}")
+
+        end_time = time.time(); elapsed_this_cycle = end_time - loop_start_time
+        sleep_time = max(0, EVALUATION_INTERVAL_SECONDS - elapsed_this_cycle)
+        time.sleep(sleep_time)

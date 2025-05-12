@@ -26,6 +26,7 @@ RUN apt-get update && \
 # Install required python libraries for fuzzy logic and communication
 RUN pip install --no-cache-dir \
     requests \
+    flask \
     numpy \
     scipy \
     scikit-fuzzy \
