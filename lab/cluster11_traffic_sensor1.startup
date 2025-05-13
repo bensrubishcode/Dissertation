@@ -1,13 +1,8 @@
 ifconfig eth0 10.11.1.1/24 up
 route add default gw 10.11.1.254 dev eth0
-# Sensor s_11_1 on edge 10-19
+# Sensor s_11_1 on edge 7-15
 echo "11" > /etc/cluster_id
 echo "s_11_1" > /etc/sensor_id
-echo "EDGE=10-19" > /etc/edge_info
-echo "MANUFACTURER=OkayDevices" > /etc/sensor_profile
-echo "SOFTWARE_VERSION=v2.1.0-signed" >> /etc/sensor_profile
-echo "IS_SIGNED=true" >> /etc/sensor_profile
-echo "SOFTWARE_AGE_YEARS=0.5" >> /etc/sensor_profile
-echo "DEVICE_AGE_YEARS=2.54" >> /etc/sensor_profile
-echo "MAKE_NOISY=false" > /etc/sensor_config
+echo "EDGE=7-15" > /etc/edge_info
+echo "MAKE_NOISY=true" > /etc/sensor_config
 echo "192.168.254.253" > /etc/traffic_server_ip

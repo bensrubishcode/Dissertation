@@ -1,3 +1,0 @@
-# traffic_light_4 Startup Commands
-echo "4" > /etc/node_id
-echo "192.168.254.253" > /etc/traffic_server_ip

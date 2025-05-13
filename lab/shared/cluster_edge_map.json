@@ -1,16 +1,16 @@
 {
     "1": {
         "edge": [
-            3,
-            8
+            6,
+            15
         ],
-        "num_sensors": 1,
+        "num_sensors": 3,
         "sensor_type": "traffic_sensor"
     },
     "2": {
         "edge": [
-            10,
-            11
+            1,
+            6
         ],
         "num_sensors": 2,
         "sensor_type": "traffic_sensor"
@@ -18,81 +18,137 @@
     "3": {
         "edge": [
             3,
-            4
+            6
         ],
         "num_sensors": 3,
         "sensor_type": "traffic_sensor"
     },
     "4": {
         "edge": [
-            11,
-            13
+            5,
+            15
         ],
-        "num_sensors": 2,
+        "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "5": {
         "edge": [
-            6,
-            8
+            1,
+            5
         ],
-        "num_sensors": 2,
+        "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "6": {
         "edge": [
-            2,
-            10
+            11,
+            19
         ],
         "num_sensors": 3,
         "sensor_type": "traffic_sensor"
     },
     "7": {
         "edge": [
-            4,
-            12
+            1,
+            8
         ],
-        "num_sensors": 2,
+        "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "8": {
         "edge": [
-            3,
-            13
+            13,
+            19
         ],
-        "num_sensors": 2,
+        "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "9": {
         "edge": [
-            4,
-            8
+            15,
+            16
         ],
         "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "10": {
         "edge": [
-            4,
-            14
+            15,
+            19
         ],
         "num_sensors": 2,
         "sensor_type": "traffic_sensor"
     },
     "11": {
         "edge": [
-            10,
-            19
+            7,
+            15
         ],
         "num_sensors": 1,
         "sensor_type": "traffic_sensor"
     },
     "12": {
         "edge": [
-            2,
-            11
+            3,
+            5
         ],
-        "num_sensors": 1,
+        "num_sensors": 2,
+        "sensor_type": "traffic_sensor"
+    },
+    "13": {
+        "edge": [
+            3,
+            17
+        ],
+        "num_sensors": 3,
+        "sensor_type": "traffic_sensor"
+    },
+    "14": {
+        "edge": [
+            8,
+            10
+        ],
+        "num_sensors": 3,
+        "sensor_type": "traffic_sensor"
+    },
+    "15": {
+        "edge": [
+            10,
+            13
+        ],
+        "num_sensors": 3,
+        "sensor_type": "traffic_sensor"
+    },
+    "16": {
+        "edge": [
+            9,
+            15
+        ],
+        "num_sensors": 3,
+        "sensor_type": "traffic_sensor"
+    },
+    "17": {
+        "edge": [
+            2,
+            3
+        ],
+        "num_sensors": 2,
+        "sensor_type": "traffic_sensor"
+    },
+    "18": {
+        "edge": [
+            8,
+            19
+        ],
+        "num_sensors": 3,
+        "sensor_type": "traffic_sensor"
+    },
+    "19": {
+        "edge": [
+            1,
+            16
+        ],
+        "num_sensors": 3,
         "sensor_type": "traffic_sensor"
     }
 }

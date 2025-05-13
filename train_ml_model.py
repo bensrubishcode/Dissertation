@@ -1,32 +1,59 @@
-# train_ml_model.py
-
-import ml_risk_assessor # Import the module we just created
+#!/usr/bin/env python3
+import ml_risk_assessor # Uses the updated ml_risk_assessor.py
 import os
+import argparse
 
-# Define the path to the training data CSV - should match automation.py
-DATA_FILEPATH = "ml_training_data.csv"
+def main(args):
+    print(f"--- Starting ML Model Training Process for Model Type: {args.model_type} ---")
 
-def main():
-    print("--- Starting ML Model Training Process ---")
-
-    if not os.path.exists(DATA_FILEPATH) or os.path.getsize(DATA_FILEPATH) == 0:
-        print(f"Training data file '{DATA_FILEPATH}' not found or is empty.")
-        print("Please run the main simulation (automation.py and potentially the Kathara lab via bash.sh)")
-        print("at least once to generate training data.")
+    if not args.data_file:
+        print("Error: No data file specified for training.")
         return
 
-    print(f"Attempting to train models using data from: {DATA_FILEPATH}")
-    success = ml_risk_assessor.train_models(data_filepath=DATA_FILEPATH)
+    if not os.path.exists(args.data_file) or os.path.getsize(args.data_file) == 0:
+        print(f"Training data file '{args.data_file}' not found or is empty.")
+        if args.model_type == "InitialTrustPredictor":
+            print("This is expected on the very first run if AGGREGATED_ML_TRAINING_DATA_CSV is new.")
+            print("An empty model/preprocessor might be created, or training might be skipped by ml_risk_assessor.")
+        # For other model types, this might be a more critical error.
+        # Let ml_risk_assessor.train_models handle the empty data case.
+        # return # Don't return here, let train_models decide if it can proceed
+
+    print(f"Attempting to train '{args.model_type}' model using data from: {args.data_file}")
+    
+    # Call the centralized training function in ml_risk_assessor
+    success = ml_risk_assessor.train_models(
+        data_filepath=args.data_file,
+        model_type=args.model_type
+    )
 
     if success:
-        print("\n--- ML Model Training Process Completed Successfully ---")
-        print(f"Models saved to:")
-        print(f"  - Reliability Model: {ml_risk_assessor.RELIABILITY_MODEL_PATH}")
-        print(f"  - Noisy Config Model: {ml_risk_assessor.NOISY_CONFIG_MODEL_PATH}")
-        print(f"  - Preprocessor: {ml_risk_assessor.PREPROCESSOR_PATH}")
+        print(f"\n--- ML Model Training Process for '{args.model_type}' Completed Successfully (or handled gracefully) ---")
+        # Specific model paths are now internal to ml_risk_assessor
+        if args.model_type == "InitialTrustPredictor":
+            if hasattr(ml_risk_assessor, 'INITIAL_TRUST_MODEL_PATH') and os.path.exists(ml_risk_assessor.INITIAL_TRUST_MODEL_PATH):
+                print(f"  - Initial Trust Predictor Model: {ml_risk_assessor.INITIAL_TRUST_MODEL_PATH}")
+                print(f"  - Initial Trust Predictor Preprocessor: {ml_risk_assessor.INITIAL_TRUST_PREPROCESSOR_PATH}")
+            else:
+                print(f"  Note: Initial Trust Predictor model/preprocessor files might not have been created if data was insufficient.")
+        # Add similar checks for other model types if needed
     else:
-        print("\n--- ML Model Training Process Encountered Errors ---")
+        print(f"\n--- ML Model Training Process for '{args.model_type}' Encountered Errors or Was Skipped ---")
         print("Please check the output from 'ml_risk_assessor.train_models' for details.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train ML models for the ITS simulation.")
+    parser.add_argument(
+        "--data-file", 
+        required=True,
+        help="Path to the CSV data file for training."
+    )
+    parser.add_argument(
+        "--model-type", 
+        required=True, 
+        choices=["InitialTrustPredictor", "GTReliability", "GTNoisy"], # Add other types if any
+        help="Type of model to train."
+    )
+    
+    parsed_args = parser.parse_args()
+    main(parsed_args)

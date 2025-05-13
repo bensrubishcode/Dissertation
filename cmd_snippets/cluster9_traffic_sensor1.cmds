@@ -1,11 +1,6 @@
-# Sensor s_9_1 on edge 4-8
+# Sensor s_9_1 on edge 15-16
 echo "9" > /etc/cluster_id
 echo "s_9_1" > /etc/sensor_id
-echo "EDGE=4-8" > /etc/edge_info
-echo "MANUFACTURER=OkayDevices" > /etc/sensor_profile
-echo "SOFTWARE_VERSION=v2.1.0-signed" >> /etc/sensor_profile
-echo "IS_SIGNED=true" >> /etc/sensor_profile
-echo "SOFTWARE_AGE_YEARS=0.5" >> /etc/sensor_profile
-echo "DEVICE_AGE_YEARS=2.31" >> /etc/sensor_profile
+echo "EDGE=15-16" > /etc/edge_info
 echo "MAKE_NOISY=false" > /etc/sensor_config
 echo "192.168.254.253" > /etc/traffic_server_ip

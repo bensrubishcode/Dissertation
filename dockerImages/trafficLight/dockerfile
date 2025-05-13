@@ -22,7 +22,7 @@ RUN apt-get update && \
         nano \
     # Clean up APT cache
     && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y bash && rm -rf /var/lib/apt/lists/*
 # Install required python libraries for fuzzy logic and communication
 RUN pip install --no-cache-dir \
     requests \

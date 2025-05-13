@@ -1,29 +1,188 @@
 {
-    "4": {
-        "3-4": [
+    "1": {
+        "1-5": [
             {
-                "ip": "10.3.1.1",
-                "unique_sensor_id": "s_3_1",
+                "ip": "10.5.1.1",
+                "unique_sensor_id": "s_5_1",
                 "manufacturer": "OkayDevices",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 3.31,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 71.4,
+                "ml_predicted_noise_propensity": 0.14,
+                "ml_initial_data_consistency": 0.84
+            }
+        ],
+        "1-6": [
+            {
+                "ip": "10.2.1.1",
+                "unique_sensor_id": "s_2_1",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 4.69,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 76.9,
+                "ml_predicted_noise_propensity": 0.24,
+                "ml_initial_data_consistency": 0.78
+            },
+            {
+                "ip": "10.2.1.2",
+                "unique_sensor_id": "s_2_2",
+                "manufacturer": "OkayDevices",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 4.95,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 82.2,
+                "ml_predicted_noise_propensity": 0.05,
+                "ml_initial_data_consistency": 0.86
+            }
+        ],
+        "1-8": [
+            {
+                "ip": "10.7.1.1",
+                "unique_sensor_id": "s_7_1",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 0.59,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 72.0,
+                "ml_predicted_noise_propensity": 0.2,
+                "ml_initial_data_consistency": 0.77
+            }
+        ],
+        "1-16": [
+            {
+                "ip": "10.19.1.1",
+                "unique_sensor_id": "s_19_1",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 4.78,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 78.2,
+                "ml_predicted_noise_propensity": 0.15,
+                "ml_initial_data_consistency": 0.7
+            },
+            {
+                "ip": "10.19.1.2",
+                "unique_sensor_id": "s_19_2",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 2.34,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 60.2,
+                "ml_predicted_noise_propensity": 0.2,
+                "ml_initial_data_consistency": 0.64
+            },
+            {
+                "ip": "10.19.1.3",
+                "unique_sensor_id": "s_19_3",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 0.51,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 67.2,
+                "ml_predicted_noise_propensity": 0.3,
+                "ml_initial_data_consistency": 0.68
+            }
+        ]
+    },
+    "3": {
+        "2-3": [
+            {
+                "ip": "10.17.1.1",
+                "unique_sensor_id": "s_17_1",
+                "manufacturer": "ShadySensorsLtd",
                 "software_version": "v2.1.0-signed",
                 "is_signed": true,
                 "software_age_years": 0.5,
-                "device_age_years": 0.78,
-                "ml_predicted_reliability": 86.8,
-                "ml_predicted_noise_propensity": 0.22,
-                "ml_initial_data_consistency": 0.74
+                "device_age_years": 3.71,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 81.1,
+                "ml_predicted_noise_propensity": 0.18,
+                "ml_initial_data_consistency": 0.7
+            },
+            {
+                "ip": "10.17.1.2",
+                "unique_sensor_id": "s_17_2",
+                "manufacturer": "LegacySystems",
+                "software_version": "v2.1.0-signed",
+                "is_signed": true,
+                "software_age_years": 0.5,
+                "device_age_years": 3.43,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 68.0,
+                "ml_predicted_noise_propensity": 0.27,
+                "ml_initial_data_consistency": 0.71
+            }
+        ],
+        "3-5": [
+            {
+                "ip": "10.12.1.1",
+                "unique_sensor_id": "s_12_1",
+                "manufacturer": "LegacySystems",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 0.87,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 73.5,
+                "ml_predicted_noise_propensity": 0.14,
+                "ml_initial_data_consistency": 0.91
+            },
+            {
+                "ip": "10.12.1.2",
+                "unique_sensor_id": "s_12_2",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v2.1.0-signed",
+                "is_signed": true,
+                "software_age_years": 0.5,
+                "device_age_years": 1.54,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 64.8,
+                "ml_predicted_noise_propensity": 0.21,
+                "ml_initial_data_consistency": 0.83
+            }
+        ],
+        "3-6": [
+            {
+                "ip": "10.3.1.1",
+                "unique_sensor_id": "s_3_1",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 0.26,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 88.7,
+                "ml_predicted_noise_propensity": 0.21,
+                "ml_initial_data_consistency": 0.78
             },
             {
                 "ip": "10.3.1.2",
                 "unique_sensor_id": "s_3_2",
                 "manufacturer": "GoodSensorCorp",
-                "software_version": "v2.1.0-signed",
-                "is_signed": true,
-                "software_age_years": 0.5,
-                "device_age_years": 2.47,
-                "ml_predicted_reliability": 98.9,
-                "ml_predicted_noise_propensity": 0.13,
-                "ml_initial_data_consistency": 0.66
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 4.85,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 84.3,
+                "ml_predicted_noise_propensity": 0.28,
+                "ml_initial_data_consistency": 0.68
             },
             {
                 "ip": "10.3.1.3",
@@ -32,13 +191,253 @@
                 "software_version": "v1.0.0",
                 "is_signed": false,
                 "software_age_years": 4.0,
-                "device_age_years": 4.26,
-                "ml_predicted_reliability": 80.9,
-                "ml_predicted_noise_propensity": 0.35,
-                "ml_initial_data_consistency": 0.81
+                "device_age_years": 4.62,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 72.3,
+                "ml_predicted_noise_propensity": 0.19,
+                "ml_initial_data_consistency": 0.8
             }
         ],
-        "4-8": [
+        "3-17": [
+            {
+                "ip": "10.13.1.1",
+                "unique_sensor_id": "s_13_1",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 1.8,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 87.4,
+                "ml_predicted_noise_propensity": 0.23,
+                "ml_initial_data_consistency": 0.78
+            },
+            {
+                "ip": "10.13.1.2",
+                "unique_sensor_id": "s_13_2",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 4.27,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 81.7,
+                "ml_predicted_noise_propensity": 0.11,
+                "ml_initial_data_consistency": 0.91
+            },
+            {
+                "ip": "10.13.1.3",
+                "unique_sensor_id": "s_13_3",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 4.68,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 81.1,
+                "ml_predicted_noise_propensity": 0.28,
+                "ml_initial_data_consistency": 0.7
+            }
+        ]
+    },
+    "10": {
+        "8-10": [
+            {
+                "ip": "10.14.1.1",
+                "unique_sensor_id": "s_14_1",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 4.54,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 86.6,
+                "ml_predicted_noise_propensity": 0.18,
+                "ml_initial_data_consistency": 0.85
+            },
+            {
+                "ip": "10.14.1.2",
+                "unique_sensor_id": "s_14_2",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 2.92,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 89.9,
+                "ml_predicted_noise_propensity": 0.09,
+                "ml_initial_data_consistency": 0.73
+            },
+            {
+                "ip": "10.14.1.3",
+                "unique_sensor_id": "s_14_3",
+                "manufacturer": "OkayDevices",
+                "software_version": "v2.1.0-signed",
+                "is_signed": true,
+                "software_age_years": 0.5,
+                "device_age_years": 2.18,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 87.8,
+                "ml_predicted_noise_propensity": 0.16,
+                "ml_initial_data_consistency": 0.84
+            }
+        ],
+        "10-13": [
+            {
+                "ip": "10.15.1.1",
+                "unique_sensor_id": "s_15_1",
+                "manufacturer": "LegacySystems",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 1.54,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 78.4,
+                "ml_predicted_noise_propensity": 0.29,
+                "ml_initial_data_consistency": 0.68
+            },
+            {
+                "ip": "10.15.1.2",
+                "unique_sensor_id": "s_15_2",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 2.01,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 87.1,
+                "ml_predicted_noise_propensity": 0.29,
+                "ml_initial_data_consistency": 0.81
+            },
+            {
+                "ip": "10.15.1.3",
+                "unique_sensor_id": "s_15_3",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 2.22,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 82.3,
+                "ml_predicted_noise_propensity": 0.2,
+                "ml_initial_data_consistency": 0.66
+            }
+        ]
+    },
+    "15": {
+        "5-15": [
+            {
+                "ip": "10.4.1.1",
+                "unique_sensor_id": "s_4_1",
+                "manufacturer": "LegacySystems",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 4.09,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 87.0,
+                "ml_predicted_noise_propensity": 0.29,
+                "ml_initial_data_consistency": 0.89
+            }
+        ],
+        "6-15": [
+            {
+                "ip": "10.1.1.1",
+                "unique_sensor_id": "s_1_1",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 2.84,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 67.7,
+                "ml_predicted_noise_propensity": 0.15,
+                "ml_initial_data_consistency": 0.65
+            },
+            {
+                "ip": "10.1.1.2",
+                "unique_sensor_id": "s_1_2",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 4.26,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 63.2,
+                "ml_predicted_noise_propensity": 0.11,
+                "ml_initial_data_consistency": 0.72
+            },
+            {
+                "ip": "10.1.1.3",
+                "unique_sensor_id": "s_1_3",
+                "manufacturer": "LegacySystems",
+                "software_version": "v0.8.0-legacy",
+                "is_signed": false,
+                "software_age_years": 6.0,
+                "device_age_years": 4.34,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 78.6,
+                "ml_predicted_noise_propensity": 0.19,
+                "ml_initial_data_consistency": 0.67
+            }
+        ],
+        "7-15": [
+            {
+                "ip": "10.11.1.1",
+                "unique_sensor_id": "s_11_1",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 3.16,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 61.5,
+                "ml_predicted_noise_propensity": 0.08,
+                "ml_initial_data_consistency": 0.68
+            }
+        ],
+        "9-15": [
+            {
+                "ip": "10.16.1.1",
+                "unique_sensor_id": "s_16_1",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.0.0",
+                "is_signed": false,
+                "software_age_years": 4.0,
+                "device_age_years": 0.83,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 81.4,
+                "ml_predicted_noise_propensity": 0.15,
+                "ml_initial_data_consistency": 0.87
+            },
+            {
+                "ip": "10.16.1.2",
+                "unique_sensor_id": "s_16_2",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 2.57,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 80.7,
+                "ml_predicted_noise_propensity": 0.24,
+                "ml_initial_data_consistency": 0.9
+            },
+            {
+                "ip": "10.16.1.3",
+                "unique_sensor_id": "s_16_3",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 1.18,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 61.4,
+                "ml_predicted_noise_propensity": 0.14,
+                "ml_initial_data_consistency": 0.7
+            }
+        ],
+        "15-16": [
             {
                 "ip": "10.9.1.1",
                 "unique_sensor_id": "s_9_1",
@@ -46,319 +445,165 @@
                 "software_version": "v2.1.0-signed",
                 "is_signed": true,
                 "software_age_years": 0.5,
-                "device_age_years": 2.31,
-                "ml_predicted_reliability": 86.6,
-                "ml_predicted_noise_propensity": 0.17,
-                "ml_initial_data_consistency": 0.78
+                "device_age_years": 1.17,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 82.7,
+                "ml_predicted_noise_propensity": 0.22,
+                "ml_initial_data_consistency": 0.65
             }
         ],
-        "4-12": [
-            {
-                "ip": "10.7.1.1",
-                "unique_sensor_id": "s_7_1",
-                "manufacturer": "OkayDevices",
-                "software_version": "v2.0.0-signed",
-                "is_signed": true,
-                "software_age_years": 1.5,
-                "device_age_years": 1.34,
-                "ml_predicted_reliability": 87.1,
-                "ml_predicted_noise_propensity": 0.81,
-                "ml_initial_data_consistency": 0.87
-            },
-            {
-                "ip": "10.7.1.2",
-                "unique_sensor_id": "s_7_2",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 1.1,
-                "ml_predicted_reliability": 44.6,
-                "ml_predicted_noise_propensity": 0.36,
-                "ml_initial_data_consistency": 0.67
-            }
-        ],
-        "4-14": [
+        "15-19": [
             {
                 "ip": "10.10.1.1",
                 "unique_sensor_id": "s_10_1",
-                "manufacturer": "OkayDevices",
-                "software_version": "v2.1.0-signed",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v2.0.0-signed",
                 "is_signed": true,
-                "software_age_years": 0.5,
-                "device_age_years": 4.1,
-                "ml_predicted_reliability": 86.6,
-                "ml_predicted_noise_propensity": 0.09,
-                "ml_initial_data_consistency": 0.92
+                "software_age_years": 1.5,
+                "device_age_years": 0.36,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 85.9,
+                "ml_predicted_noise_propensity": 0.06,
+                "ml_initial_data_consistency": 0.61
             },
             {
                 "ip": "10.10.1.2",
                 "unique_sensor_id": "s_10_2",
                 "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.2.0-beta-unsigned",
-                "is_signed": false,
-                "software_age_years": 2.5,
-                "device_age_years": 4.79,
-                "ml_predicted_reliability": 71.1,
-                "ml_predicted_noise_propensity": 0.28,
-                "ml_initial_data_consistency": 0.86
-            }
-        ]
-    },
-    "8": {
-        "3-8": [
-            {
-                "ip": "10.1.1.1",
-                "unique_sensor_id": "s_1_1",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 0.46,
-                "ml_predicted_reliability": 95.8,
-                "ml_predicted_noise_propensity": 0.23,
-                "ml_initial_data_consistency": 0.76
-            }
-        ],
-        "4-8": [
-            {
-                "ip": "10.9.1.1",
-                "unique_sensor_id": "s_9_1",
-                "manufacturer": "OkayDevices",
-                "software_version": "v2.1.0-signed",
-                "is_signed": true,
-                "software_age_years": 0.5,
-                "device_age_years": 2.31,
-                "ml_predicted_reliability": 86.6,
-                "ml_predicted_noise_propensity": 0.17,
-                "ml_initial_data_consistency": 0.78
-            }
-        ],
-        "6-8": [
-            {
-                "ip": "10.5.1.1",
-                "unique_sensor_id": "s_5_1",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v2.1.0-signed",
-                "is_signed": true,
-                "software_age_years": 0.5,
-                "device_age_years": 1.46,
-                "ml_predicted_reliability": 98.9,
-                "ml_predicted_noise_propensity": 0.15,
-                "ml_initial_data_consistency": 0.9
-            },
-            {
-                "ip": "10.5.1.2",
-                "unique_sensor_id": "s_5_2",
-                "manufacturer": "LegacySystems",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 1.14,
-                "ml_predicted_reliability": 27.4,
-                "ml_predicted_noise_propensity": 0.31,
-                "ml_initial_data_consistency": 0.8
-            }
-        ]
-    },
-    "10": {
-        "2-10": [
-            {
-                "ip": "10.6.1.1",
-                "unique_sensor_id": "s_6_1",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 3.7,
-                "ml_predicted_reliability": 40.2,
-                "ml_predicted_noise_propensity": 0.27,
-                "ml_initial_data_consistency": 0.69
-            },
-            {
-                "ip": "10.6.1.2",
-                "unique_sensor_id": "s_6_2",
-                "manufacturer": "LegacySystems",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 4.84,
-                "ml_predicted_reliability": 52.4,
-                "ml_predicted_noise_propensity": 0.35,
-                "ml_initial_data_consistency": 0.85
-            },
-            {
-                "ip": "10.6.1.3",
-                "unique_sensor_id": "s_6_3",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 3.92,
-                "ml_predicted_reliability": 81.0,
-                "ml_predicted_noise_propensity": 0.3,
-                "ml_initial_data_consistency": 0.93
-            }
-        ],
-        "10-11": [
-            {
-                "ip": "10.2.1.1",
-                "unique_sensor_id": "s_2_1",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 2.34,
-                "ml_predicted_reliability": 58.2,
-                "ml_predicted_noise_propensity": 0.27,
-                "ml_initial_data_consistency": 0.94
-            },
-            {
-                "ip": "10.2.1.2",
-                "unique_sensor_id": "s_2_2",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 2.96,
-                "ml_predicted_reliability": 95.5,
-                "ml_predicted_noise_propensity": 0.29,
-                "ml_initial_data_consistency": 0.94
-            }
-        ],
-        "10-19": [
-            {
-                "ip": "10.11.1.1",
-                "unique_sensor_id": "s_11_1",
-                "manufacturer": "OkayDevices",
-                "software_version": "v2.1.0-signed",
-                "is_signed": true,
-                "software_age_years": 0.5,
-                "device_age_years": 2.54,
-                "ml_predicted_reliability": 86.6,
-                "ml_predicted_noise_propensity": 0.17,
-                "ml_initial_data_consistency": 0.79
-            }
-        ]
-    },
-    "11": {
-        "2-11": [
-            {
-                "ip": "10.12.1.1",
-                "unique_sensor_id": "s_12_1",
-                "manufacturer": "LegacySystems",
                 "software_version": "v2.0.0-signed",
                 "is_signed": true,
                 "software_age_years": 1.5,
-                "device_age_years": 0.18,
-                "ml_predicted_reliability": 58.1,
-                "ml_predicted_noise_propensity": 0.59,
-                "ml_initial_data_consistency": 0.83
-            }
-        ],
-        "10-11": [
-            {
-                "ip": "10.2.1.1",
-                "unique_sensor_id": "s_2_1",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 2.34,
-                "ml_predicted_reliability": 58.2,
-                "ml_predicted_noise_propensity": 0.27,
-                "ml_initial_data_consistency": 0.94
-            },
-            {
-                "ip": "10.2.1.2",
-                "unique_sensor_id": "s_2_2",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.1-signed",
-                "is_signed": true,
-                "software_age_years": 3.5,
-                "device_age_years": 2.96,
-                "ml_predicted_reliability": 95.5,
-                "ml_predicted_noise_propensity": 0.29,
-                "ml_initial_data_consistency": 0.94
-            }
-        ],
-        "11-13": [
-            {
-                "ip": "10.4.1.1",
-                "unique_sensor_id": "s_4_1",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 2.32,
-                "ml_predicted_reliability": 40.8,
-                "ml_predicted_noise_propensity": 0.33,
-                "ml_initial_data_consistency": 0.66
-            },
-            {
-                "ip": "10.4.1.2",
-                "unique_sensor_id": "s_4_2",
-                "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 4.36,
-                "ml_predicted_reliability": 80.9,
-                "ml_predicted_noise_propensity": 0.36,
+                "device_age_years": 0.75,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 64.9,
+                "ml_predicted_noise_propensity": 0.11,
                 "ml_initial_data_consistency": 0.74
             }
         ]
     },
-    "13": {
-        "3-13": [
+    "19": {
+        "8-19": [
             {
-                "ip": "10.8.1.1",
-                "unique_sensor_id": "s_8_1",
+                "ip": "10.18.1.1",
+                "unique_sensor_id": "s_18_1",
                 "manufacturer": "ShadySensorsLtd",
                 "software_version": "v1.2.0-beta-unsigned",
                 "is_signed": false,
                 "software_age_years": 2.5,
-                "device_age_years": 0.85,
-                "ml_predicted_reliability": 40.3,
-                "ml_predicted_noise_propensity": 0.62,
-                "ml_initial_data_consistency": 0.84
+                "device_age_years": 4.76,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 68.8,
+                "ml_predicted_noise_propensity": 0.21,
+                "ml_initial_data_consistency": 0.81
             },
             {
-                "ip": "10.8.1.2",
-                "unique_sensor_id": "s_8_2",
-                "manufacturer": "GoodSensorCorp",
+                "ip": "10.18.1.2",
+                "unique_sensor_id": "s_18_2",
+                "manufacturer": "LegacySystems",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 2.37,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 65.1,
+                "ml_predicted_noise_propensity": 0.28,
+                "ml_initial_data_consistency": 0.76
+            },
+            {
+                "ip": "10.18.1.3",
+                "unique_sensor_id": "s_18_3",
+                "manufacturer": "OkayDevices",
+                "software_version": "v1.2.0-beta-unsigned",
+                "is_signed": false,
+                "software_age_years": 2.5,
+                "device_age_years": 0.17,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 60.3,
+                "ml_predicted_noise_propensity": 0.19,
+                "ml_initial_data_consistency": 0.83
+            }
+        ],
+        "11-19": [
+            {
+                "ip": "10.6.1.1",
+                "unique_sensor_id": "s_6_1",
+                "manufacturer": "LegacySystems",
                 "software_version": "v2.1.0-signed",
                 "is_signed": true,
                 "software_age_years": 0.5,
-                "device_age_years": 2.22,
-                "ml_predicted_reliability": 98.9,
-                "ml_predicted_noise_propensity": 0.12,
-                "ml_initial_data_consistency": 0.72
-            }
-        ],
-        "11-13": [
-            {
-                "ip": "10.4.1.1",
-                "unique_sensor_id": "s_4_1",
-                "manufacturer": "ShadySensorsLtd",
-                "software_version": "v1.0.0",
-                "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 2.32,
-                "ml_predicted_reliability": 40.8,
-                "ml_predicted_noise_propensity": 0.33,
-                "ml_initial_data_consistency": 0.66
+                "device_age_years": 0.59,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 73.8,
+                "ml_predicted_noise_propensity": 0.19,
+                "ml_initial_data_consistency": 0.61
             },
             {
-                "ip": "10.4.1.2",
-                "unique_sensor_id": "s_4_2",
+                "ip": "10.6.1.2",
+                "unique_sensor_id": "s_6_2",
                 "manufacturer": "GoodSensorCorp",
-                "software_version": "v1.0.0",
+                "software_version": "v0.8.0-legacy",
                 "is_signed": false,
-                "software_age_years": 4.0,
-                "device_age_years": 4.36,
-                "ml_predicted_reliability": 80.9,
-                "ml_predicted_noise_propensity": 0.36,
+                "software_age_years": 6.0,
+                "device_age_years": 0.52,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 68.8,
+                "ml_predicted_noise_propensity": 0.2,
+                "ml_initial_data_consistency": 0.75
+            },
+            {
+                "ip": "10.6.1.3",
+                "unique_sensor_id": "s_6_3",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 1.29,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 61.8,
+                "ml_predicted_noise_propensity": 0.3,
+                "ml_initial_data_consistency": 0.85
+            }
+        ],
+        "13-19": [
+            {
+                "ip": "10.8.1.1",
+                "unique_sensor_id": "s_8_1",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v1.0.1-signed",
+                "is_signed": true,
+                "software_age_years": 3.5,
+                "device_age_years": 0.75,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 88.7,
+                "ml_predicted_noise_propensity": 0.23,
+                "ml_initial_data_consistency": 0.78
+            }
+        ],
+        "15-19": [
+            {
+                "ip": "10.10.1.1",
+                "unique_sensor_id": "s_10_1",
+                "manufacturer": "ShadySensorsLtd",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 0.36,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 85.9,
+                "ml_predicted_noise_propensity": 0.06,
+                "ml_initial_data_consistency": 0.61
+            },
+            {
+                "ip": "10.10.1.2",
+                "unique_sensor_id": "s_10_2",
+                "manufacturer": "GoodSensorCorp",
+                "software_version": "v2.0.0-signed",
+                "is_signed": true,
+                "software_age_years": 1.5,
+                "device_age_years": 0.75,
+                "ml_initial_trust_score": 75.0,
+                "ml_predicted_reliability": 64.9,
+                "ml_predicted_noise_propensity": 0.11,
                 "ml_initial_data_consistency": 0.74
             }
         ]

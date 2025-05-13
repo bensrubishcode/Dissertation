@@ -1,0 +1,75 @@
+ifconfig eth0 10.18.1.254/24 up
+ifconfig eth1 192.168.254.18/24 up
+
+# --- FRR Setup for router18 - Appended by bash.sh ---
+echo ">>> router18: Starting FRR Setup sequence..."
+mkdir -p /var/run/frr /var/log/frr /etc/frr
+chown -R frr:frr /var/run/frr /var/log/frr /etc/frr
+chmod -R u+rwx,g+rwx /var/run/frr /var/log/frr
+chmod 755 /etc/frr
+echo "Directories created and permissions set for FRR on router18."
+
+# Create daemons configuration
+cat << EOL_DAEMONS > /etc/frr/daemons
+zebra=yes
+ripd=yes
+bgpd=no
+ospfd=no
+ospf6d=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
+EOL_DAEMONS
+echo "/etc/frr/daemons created for router18:"
+cat /etc/frr/daemons
+
+# Create zebra.conf
+cat << EOL_ZEBRA > /etc/frr/zebra.conf
+hostname router18
+password zebra
+enable password zebra
+log file /var/log/frr/zebra.log debugging
+! interface eth0 will be configured by Kathara
+! interface eth1 will be configured by Kathara
+interface lo
+line vty
+EOL_ZEBRA
+echo "/etc/frr/zebra.conf created for router18."
+
+# Create ripd.conf (Networks will be advertised by Tacata's rip() command in lab.conf)
+cat << EOL_RIPD > /etc/frr/ripd.conf
+hostname router18
+password zebra
+enable password zebra
+router rip
+  redistribute connected
+  ! network statements are typically added by Kathara/Tacata based on lab.conf
+log file /var/log/frr/ripd.log debugging
+line vty
+EOL_RIPD
+echo "/etc/frr/ripd.conf created for router18."
+
+chown frr:frr /etc/frr/*.conf
+chmod 640 /etc/frr/*.conf
+echo "FRR config file permissions set for router18."
+
+echo "Enabling IP forwarding on router18..."
+echo 1 > /proc/sys/net/ipv4/ip_forward
+echo "IP forwarding status: $(cat /proc/sys/net/ipv4/ip_forward)"
+
+echo "Starting FRR daemons on router18..."
+if [ -x /usr/lib/frr/frrinit.sh ]; then
+    /usr/lib/frr/frrinit.sh start
+    FRR_START_STATUS=$?
+    echo "FRR init script executed with status: $FRR_START_STATUS for router18."
+    sleep 2 
+    ps aux | grep -E 'frr|zebra|ripd' | grep -v grep || echo "No FRR processes found for router18 after start attempt."
+    echo "Checking FRR status with vtysh for router18..."
+    vtysh -c "show version" || echo "vtysh 'show version' failed for router18."
+    vtysh -c "show ip rip status" || echo "vtysh 'show ip rip status' failed for router18."
+else
+    echo "[ERROR] FRR init script /usr/lib/frr/frrinit.sh not found on router18."
+fi
+echo ">>> router18: FRR Setup sequence finished."
+# --- End FRR Setup for router18 ---

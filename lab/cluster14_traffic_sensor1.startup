@@ -1,0 +1,8 @@
+ifconfig eth0 10.14.1.1/24 up
+route add default gw 10.14.1.254 dev eth0
+# Sensor s_14_1 on edge 8-10
+echo "14" > /etc/cluster_id
+echo "s_14_1" > /etc/sensor_id
+echo "EDGE=8-10" > /etc/edge_info
+echo "MAKE_NOISY=false" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

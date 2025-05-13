@@ -1,0 +1,11 @@
+{
+    "node_id": 19,
+    "total_evaluated_cycles": 0,
+    "correct_decision_cycles": 0,
+    "success_ratio": 0.0,
+    "initial_trust_scores_used": {
+        "10.1.1.1": 75.0,
+        "10.1.1.2": 75.0,
+        "10.12.1.1": 75.0
+    }
+}

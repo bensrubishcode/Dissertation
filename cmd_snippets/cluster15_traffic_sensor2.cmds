@@ -1,0 +1,6 @@
+# Sensor s_15_2 on edge 10-13
+echo "15" > /etc/cluster_id
+echo "s_15_2" > /etc/sensor_id
+echo "EDGE=10-13" > /etc/edge_info
+echo "MAKE_NOISY=true" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

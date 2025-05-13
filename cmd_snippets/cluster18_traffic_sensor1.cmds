@@ -1,0 +1,6 @@
+# Sensor s_18_1 on edge 8-19
+echo "18" > /etc/cluster_id
+echo "s_18_1" > /etc/sensor_id
+echo "EDGE=8-19" > /etc/edge_info
+echo "MAKE_NOISY=true" > /etc/sensor_config
+echo "192.168.254.253" > /etc/traffic_server_ip

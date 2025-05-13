@@ -1,0 +1,3 @@
+# traffic_light_19 Startup Commands
+echo "19" > /etc/node_id
+echo "192.168.254.253" > /etc/traffic_server_ip

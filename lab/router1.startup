@@ -1,71 +1,75 @@
 ifconfig eth0 10.1.1.254/24 up
 ifconfig eth1 192.168.254.1/24 up
-# Router router1 FRR Service Setup - Appended by bash.sh
-echo "Setting up FRR for router1..."
-mkdir -p /etc/frr /var/run/frr /var/log/frr
-chown -R frr:frr /etc/frr /var/run/frr /var/log/frr
+
+# --- FRR Setup for router1 - Appended by bash.sh ---
+echo ">>> router1: Starting FRR Setup sequence..."
+mkdir -p /var/run/frr /var/log/frr /etc/frr
+chown -R frr:frr /var/run/frr /var/log/frr /etc/frr
 chmod -R u+rwx,g+rwx /var/run/frr /var/log/frr
 chmod 755 /etc/frr
+echo "Directories created and permissions set for FRR on router1."
 
-echo "Creating /etc/frr/daemons for router1..."
+# Create daemons configuration
 cat << EOL_DAEMONS > /etc/frr/daemons
 zebra=yes
 ripd=yes
-zebra_options="  --daemon -A 127.0.0.1 -f /etc/frr/zebra.conf"
-ripd_options="   --daemon -A 127.0.0.1 -f /etc/frr/ripd.conf"
+bgpd=no
+ospfd=no
+ospf6d=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
 EOL_DAEMONS
-echo "Content of /etc/frr/daemons for router1:"; cat /etc/frr/daemons; echo "---"
+echo "/etc/frr/daemons created for router1:"
+cat /etc/frr/daemons
 
-echo "Creating /etc/frr/zebra.conf for router1..."
+# Create zebra.conf
 cat << EOL_ZEBRA > /etc/frr/zebra.conf
-! Zebra configuration for router1
 hostname router1
 password zebra
 enable password zebra
 log file /var/log/frr/zebra.log debugging
-!
-interface eth0
- description LAN interface for 10.1.1.0/24
-!
-interface eth1
- description Backbone interface for 192.168.254.0/24
-!
+! interface eth0 will be configured by Kathara
+! interface eth1 will be configured by Kathara
 interface lo
-!
 line vty
-!
 EOL_ZEBRA
-echo "Content of /etc/frr/zebra.conf for router1:"; cat /etc/frr/zebra.conf; echo "---"
+echo "/etc/frr/zebra.conf created for router1."
 
-echo "Creating /etc/frr/ripd.conf for router1..."
+# Create ripd.conf (Networks will be advertised by Tacata's rip() command in lab.conf)
 cat << EOL_RIPD > /etc/frr/ripd.conf
-! RIPd configuration for router1
 hostname router1
 password zebra
 enable password zebra
-!
 router rip
- network 10.1.1.0/24
- network 192.168.254.0/24
- redistribute connected
-!
+  redistribute connected
+  ! network statements are typically added by Kathara/Tacata based on lab.conf
 log file /var/log/frr/ripd.log debugging
-!
 line vty
-!
 EOL_RIPD
-echo "Content of /etc/frr/ripd.conf for router1:"; cat /etc/frr/ripd.conf; echo "---"
+echo "/etc/frr/ripd.conf created for router1."
 
-chown frr:frr /etc/frr/*.conf; chmod 640 /etc/frr/*.conf
-echo "Attempting to enable IP forwarding on router1..."
-if echo 1 > /proc/sys/net/ipv4/ip_forward; then echo "IP forwarding enabled via /proc."; else echo "WARNING: Failed to enable IP forwarding via /proc."; fi
-echo "Current IP forwarding status: $(cat /proc/sys/net/ipv4/ip_forward)"
+chown frr:frr /etc/frr/*.conf
+chmod 640 /etc/frr/*.conf
+echo "FRR config file permissions set for router1."
+
+echo "Enabling IP forwarding on router1..."
+echo 1 > /proc/sys/net/ipv4/ip_forward
+echo "IP forwarding status: $(cat /proc/sys/net/ipv4/ip_forward)"
+
+echo "Starting FRR daemons on router1..."
 if [ -x /usr/lib/frr/frrinit.sh ]; then
-    echo "Starting FRR service on router1..."
-    /usr/lib/frr/frrinit.sh start; sleep 3
-    echo "FRR processes for router1:"; ps aux | grep -E 'frr|zebra|ripd' || echo "No FRR processes."
-    echo "FRR logs for router1:"; ls -la /var/log/frr/
-    vtysh -c "show version" || echo "vtysh 'show version' failed."
+    /usr/lib/frr/frrinit.sh start
+    FRR_START_STATUS=$?
+    echo "FRR init script executed with status: $FRR_START_STATUS for router1."
+    sleep 2 
+    ps aux | grep -E 'frr|zebra|ripd' | grep -v grep || echo "No FRR processes found for router1 after start attempt."
+    echo "Checking FRR status with vtysh for router1..."
+    vtysh -c "show version" || echo "vtysh 'show version' failed for router1."
+    vtysh -c "show ip rip status" || echo "vtysh 'show ip rip status' failed for router1."
 else
-    echo "[ERROR] FRR init script not found on router1." >&2
+    echo "[ERROR] FRR init script /usr/lib/frr/frrinit.sh not found on router1."
 fi
+echo ">>> router1: FRR Setup sequence finished."
+# --- End FRR Setup for router1 ---
